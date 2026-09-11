@@ -3,26 +3,22 @@
 /**
  * Sign-in control for the header plus the sign-in modal.
  *
- * Providers: Email/Password (sign in or create), Google (popup), Phone (invisible reCAPTCHA →
- * SMS code). All three go through the Firebase Auth web SDK; nothing here talks to a server of
- * ours. When Firebase is not configured the control renders nothing and the app stays in guest
- * mode.
+ * Providers: Email/Password (sign in or create) and Google (popup). Both go through the
+ * Firebase Auth web SDK; nothing here talks to a server of ours. When Firebase is not configured
+ * the control renders nothing and the app stays in guest mode.
  */
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { useState, type FormEvent, type ReactNode } from 'react';
 import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
   sendPasswordResetEmail,
   signInWithPopup,
   GoogleAuthProvider,
-  RecaptchaVerifier,
-  signInWithPhoneNumber,
-  type ConfirmationResult,
 } from 'firebase/auth';
 import { firebaseAuth } from '@/lib/firebase/client';
 import { useAuth } from '@/components/AuthProvider';
 
-type Tab = 'email' | 'google' | 'phone';
+type Tab = 'email' | 'google';
 
 const FRIENDLY: Record<string, string> = {
   'auth/invalid-email': 'That email address is not valid.',
@@ -34,8 +30,6 @@ const FRIENDLY: Record<string, string> = {
   'auth/popup-closed-by-user': 'The Google window was closed before finishing.',
   'auth/unauthorized-domain': 'This domain is not authorized for sign-in in the Firebase project.',
   'auth/operation-not-allowed': 'This sign-in method is not enabled in the Firebase project yet.',
-  'auth/invalid-phone-number': 'Enter the number in international format, e.g. +1 312 555 0100.',
-  'auth/invalid-verification-code': 'That code is not right.',
   'auth/too-many-requests': 'Too many attempts. Wait a bit and try again.',
 };
 function friendly(e: unknown): string {
@@ -51,7 +45,7 @@ export default function AuthControl() {
   if (!ready) return <span style={{ fontSize: 11, color: '#40406a' }}>…</span>;
 
   if (user) {
-    const label = user.displayName || user.email || user.phoneNumber || 'Signed in';
+    const label = user.displayName || user.email || 'Signed in';
     return (
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         {user.photoURL ? (
@@ -90,15 +84,6 @@ function SignInModal({ onClose }: { onClose: () => void }) {
   const [mode, setMode] = useState<'signin' | 'create'>('signin');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-
-  // Phone
-  const [phone, setPhone] = useState('');
-  const [code, setCode] = useState('');
-  const [confirmation, setConfirmation] = useState<ConfirmationResult | null>(null);
-  const recaptchaRef = useRef<RecaptchaVerifier | null>(null);
-  const recaptchaHostId = 'auth-recaptcha-host';
-
-  useEffect(() => () => { recaptchaRef.current?.clear(); recaptchaRef.current = null; }, []);
 
   async function run(fn: () => Promise<void>) {
     setBusy(true);
@@ -143,27 +128,6 @@ function SignInModal({ onClose }: { onClose: () => void }) {
     });
   }
 
-  function sendCode(e: FormEvent) {
-    e.preventDefault();
-    run(async () => {
-      const auth = firebaseAuth();
-      if (!auth) throw new Error('Firebase is not configured.');
-      recaptchaRef.current ??= new RecaptchaVerifier(auth, recaptchaHostId, { size: 'invisible' });
-      const result = await signInWithPhoneNumber(auth, phone.trim(), recaptchaRef.current);
-      setConfirmation(result);
-      setNotice('Code sent by SMS.');
-    });
-  }
-
-  function confirmCode(e: FormEvent) {
-    e.preventDefault();
-    run(async () => {
-      if (!confirmation) throw new Error('Request a code first.');
-      await confirmation.confirm(code.trim());
-      onClose();
-    });
-  }
-
   const input: React.CSSProperties = { width: '100%', background: 'rgba(4,4,14,0.9)', border: '1px solid rgba(99,102,241,0.25)', borderRadius: 8, padding: '8px 11px', fontSize: 13, color: '#e4e4f8', outline: 'none', colorScheme: 'dark', fontWeight: 600 };
   const primary: React.CSSProperties = { padding: '8px 16px', borderRadius: 8, background: '#6366f1', color: 'white', border: 'none', fontSize: 13, fontWeight: 800, cursor: busy ? 'not-allowed' : 'pointer', opacity: busy ? 0.6 : 1, width: '100%' };
   const link: React.CSSProperties = { background: 'none', border: 'none', color: '#8b8bf0', fontSize: 11, cursor: 'pointer', fontWeight: 700, padding: 0 };
@@ -175,7 +139,7 @@ function SignInModal({ onClose }: { onClose: () => void }) {
         <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#50507a', cursor: 'pointer', fontSize: 16, lineHeight: 1 }}>×</button>
       </div>
       <div style={{ display: 'flex', gap: 4, marginBottom: 14, borderRadius: 8, border: '1px solid rgba(99,102,241,0.2)', padding: 3 }}>
-        {(['email', 'google', 'phone'] as Tab[]).map((t) => (
+        {(['email', 'google'] as Tab[]).map((t) => (
           <button key={t} onClick={() => { setTab(t); setError(null); setNotice(null); }} style={{ flex: 1, padding: '5px 0', borderRadius: 6, border: 'none', background: tab === t ? 'rgba(99,102,241,0.22)' : 'transparent', color: tab === t ? '#e4e4f8' : '#6060a0', fontSize: 12, fontWeight: 800, cursor: 'pointer', textTransform: 'capitalize' }}>
             {t}
           </button>
@@ -204,25 +168,6 @@ function SignInModal({ onClose }: { onClose: () => void }) {
           <span style={{ fontSize: 11, color: '#50507a' }}>Opens a Google window; nothing else is shared with this site.</span>
         </div>
       )}
-
-      {tab === 'phone' && (
-        confirmation ? (
-          <form onSubmit={confirmCode} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <input inputMode="numeric" autoComplete="one-time-code" placeholder="6-digit code" value={code} onChange={(e) => setCode(e.target.value)} style={input} required />
-            <button type="submit" disabled={busy} style={primary}>{busy ? '…' : 'Verify code'}</button>
-            <button type="button" onClick={() => { setConfirmation(null); setCode(''); }} style={link}>Use a different number</button>
-          </form>
-        ) : (
-          <form onSubmit={sendCode} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <input type="tel" autoComplete="tel" placeholder="+1 312 555 0100" value={phone} onChange={(e) => setPhone(e.target.value)} style={input} required />
-            <button type="submit" disabled={busy} style={primary}>{busy ? '…' : 'Send code'}</button>
-            <span style={{ fontSize: 11, color: '#50507a' }}>International format. Standard SMS rates may apply.</span>
-          </form>
-        )
-      )}
-
-      {/* Invisible reCAPTCHA anchor for phone sign-in */}
-      <div id={recaptchaHostId} />
 
       {notice && <p style={{ marginTop: 10, fontSize: 12, color: '#34d399' }}>{notice}</p>}
       {error && <p style={{ marginTop: 10, fontSize: 12, color: '#f87171' }}>{error}</p>}

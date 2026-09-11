@@ -4,7 +4,8 @@
       "localhost",
       "pokemon-vgc-tool.firebaseapp.com",
       "pokemon-vgc-tool.web.app",
-      "scored-bingo-highlighted-pot.trycloudflare.com"
+      "vgcforge.com",
+      "www.vgcforge.com"
     ],
     "providers": {
       "emailPassword": true,

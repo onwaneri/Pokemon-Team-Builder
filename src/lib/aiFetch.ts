@@ -53,3 +53,18 @@ export async function aiFetch(path: string, init: RequestInit = {}): Promise<Res
   }
   return res;
 }
+
+/**
+ * Parse a JSON body, or turn a non-JSON reply (a host's timeout page, an HTML error) into a
+ * readable `{ error }` instead of "Unexpected token 'A' … is not valid JSON".
+ */
+export async function readJson<T = Record<string, unknown>>(res: Response): Promise<T & { error?: string }> {
+  const text = await res.text();
+  try {
+    return JSON.parse(text) as T & { error?: string };
+  } catch {
+    const snippet = text.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 140);
+    const hint = res.status === 504 || /timed? ?out|FUNCTION_INVOCATION_TIMEOUT/i.test(text) ? 'The server timed out.' : `The server returned ${res.status}.`;
+    return { error: `${hint}${snippet ? ` ${snippet}` : ''}` } as T & { error?: string };
+  }
+}

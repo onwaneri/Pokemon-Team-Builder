@@ -1,5 +1,5 @@
 /**
- * Agentic team builder.
+ * Agentic team builder, run one model round per request.
  *
  * Takes a loose description ("rain with a Trick Room mode", "something around Garchomp and
  * Incineroar") plus whatever the user already placed, and fills the remaining slots. The model
@@ -9,10 +9,15 @@
  * it corrects and resubmits. Slots the user already filled are locked — the server keeps the
  * originals no matter what the model returns.
  *
+ * A full build is 5–15 model rounds (30–90 s), longer than serverless request limits allow, so
+ * the loop is split: `startBuild` prepares the state, `stepBuild` runs exactly one round, and the
+ * route hands the (signed) state back to the browser between rounds. No request ever waits on
+ * more than one model call plus its tools.
+ *
  * Server-only.
  */
 import { Type, type FunctionDeclaration } from '@google/genai';
-import type { LlmClient } from '@/lib/ai/llm';
+import type { LlmClient, LlmMessage } from '@/lib/ai/llm';
 import { fetchFormatRankings, resolveUsageFormat } from '@/lib/data/usage';
 import { listItems, isLegalSpecies } from '@/lib/data/champions';
 import { computeStats } from '@/lib/calc/engine';
@@ -28,15 +33,13 @@ import {
   spSchema,
   validateProposal,
   buildSetFromUsage,
-  runToolLoop,
+  executeSharedTool,
   fmtSp,
-  type ToolInvocation,
 } from '@/lib/ai/tools';
 
 const MAX_ROUNDS = 40;
 
 export interface BuildTeamInput {
-  client: LlmClient;
   prompt: string;
   team: (TeamMon | null)[];
   regulation?: RulesetId;
@@ -45,7 +48,26 @@ export interface BuildTeamInput {
 export interface BuildTeamResult {
   team: (TeamMon | null)[];
   summary: string;
-  toolCalls: ToolInvocation[];
+  toolCalls: { name: string }[];
+}
+
+/** Everything a build needs between rounds. Serialized (and signed) by the route. */
+export interface BuildState {
+  v: 1;
+  ruleset: RulesetId;
+  system: string;
+  messages: LlmMessage[];
+  slots: (TeamMon | null)[];
+  round: number;
+  toolNames: string[];
+}
+
+export interface BuildStep {
+  state: BuildState;
+  /** One line for the UI: what this round did. */
+  progress: string;
+  /** Set on the round that produced an accepted team. */
+  done: BuildTeamResult | null;
 }
 
 interface SubmittedSlot {
@@ -143,93 +165,148 @@ ${openSlots.join(', ')}
 Do not write a long essay; the summary field is the only prose the user sees.`;
 }
 
-export async function buildTeam(input: BuildTeamInput): Promise<BuildTeamResult> {
+function openSlotsOf(slots: (TeamMon | null)[]): number[] {
+  return slots.map((m, i) => (m ? null : i + 1)).filter((n): n is number => n !== null);
+}
+
+/** Validate a submitted team against the locked slots, the ruleset, and the clauses. */
+async function verifySubmission(args: SubmitTeamArgs, slots: (TeamMon | null)[], ruleset: RulesetId): Promise<{ errors: string[]; built: TeamMon[]; summary: string }> {
+  const locked = slots.filter((m): m is TeamMon => m !== null);
+  const openSlots = openSlotsOf(slots);
+  const errors: string[] = [];
+  const proposed = (args.slots ?? []).filter((s) => openSlots.includes(s.slot));
+  const missing = openSlots.filter((n) => !proposed.some((s) => s.slot === n));
+  if (missing.length) errors.push(`Missing sets for slot(s) ${missing.join(', ')}.`);
+
+  const seenSpecies = new Map<string, number>(locked.map((m) => [m.species.toLowerCase(), m.slot]));
+  const seenItems = new Map<string, number>(locked.filter((m) => m.item).map((m) => [m.item!.toLowerCase(), m.slot]));
+  const built: TeamMon[] = [];
+
+  for (const s of proposed) {
+    if (!isLegalSpecies(s.species, ruleset)) { errors.push(`Slot ${s.slot}: ${s.species} is not usable in ${getRuleset(ruleset).short}.`); continue; }
+    const set = await buildSetFromUsage(s.species, {
+      ability: s.ability,
+      item: s.item,
+      nature: s.nature,
+      moves: s.moves,
+      sp: s.sp as SpSpread | undefined,
+    }, ruleset);
+    const setErrors = await validateProposal(set.species, { ability: set.ability, item: set.item, moves: set.moves, sp: set.sp }, ruleset);
+    errors.push(...setErrors.map((e) => `Slot ${s.slot}: ${e}`));
+    if (set.moves.filter(Boolean).length < 4) errors.push(`Slot ${s.slot} (${set.species}): needs 4 moves, got ${set.moves.filter(Boolean).length}.`);
+    const dupSpecies = seenSpecies.get(set.species.toLowerCase());
+    if (dupSpecies !== undefined) errors.push(`Slot ${s.slot}: ${set.species} is already in slot ${dupSpecies} (Species Clause).`);
+    else seenSpecies.set(set.species.toLowerCase(), s.slot);
+    if (set.item) {
+      const dupItem = seenItems.get(set.item.toLowerCase());
+      if (dupItem !== undefined) errors.push(`Slot ${s.slot}: ${set.item} is already held by slot ${dupItem} (Item Clause).`);
+      else seenItems.set(set.item.toLowerCase(), s.slot);
+    }
+
+    let computedStats = ZERO_STATS;
+    try {
+      computedStats = computeStats({ species: set.species, ability: set.ability, item: set.item, nature: set.nature, sp: set.sp });
+    } catch (e) {
+      errors.push(`Slot ${s.slot}: ${(e as Error).message}`);
+    }
+    built.push({
+      slot: s.slot,
+      nickname: null,
+      species: set.species,
+      item: set.item,
+      ability: set.ability,
+      nature: set.nature,
+      sp: set.sp,
+      moves: padMoves(set.moves),
+      computedStats,
+      role: (s.role ?? '').trim(),
+      benchmarks: [],
+    });
+  }
+  return { errors, built, summary: (args.summary ?? '').trim() };
+}
+
+const DECLARATIONS = [lookupUsageDeclaration, compareSpeedDeclaration, calcDamageDeclaration, submitTeamDeclaration];
+
+/** Prepare a build: locks the filled slots and writes the system prompt. Runs no model call. */
+export async function startBuild(input: BuildTeamInput): Promise<BuildState> {
   const slots: (TeamMon | null)[] = Array(6).fill(null);
   for (const m of input.team) if (m && m.slot >= 1 && m.slot <= 6) slots[m.slot - 1] = m;
   const locked = slots.filter((m): m is TeamMon => m !== null);
-  const openSlots = slots.map((m, i) => (m ? null : i + 1)).filter((n): n is number => n !== null);
+  const openSlots = openSlotsOf(slots);
   if (!openSlots.length) throw new Error('The team is already full.');
-
   const ruleset = input.regulation ?? DEFAULT_RULESET;
-  const systemInstruction = await buildSystemInstruction(locked, openSlots, ruleset);
-  let accepted: { slots: TeamMon[]; summary: string } | null = null;
-
-  const executeSubmitTeam = async (args: SubmitTeamArgs): Promise<unknown> => {
-    const errors: string[] = [];
-    const proposed = (args.slots ?? []).filter((s) => openSlots.includes(s.slot));
-    const missing = openSlots.filter((n) => !proposed.some((s) => s.slot === n));
-    if (missing.length) errors.push(`Missing sets for slot(s) ${missing.join(', ')}.`);
-
-    const seenSpecies = new Map<string, number>(locked.map((m) => [m.species.toLowerCase(), m.slot]));
-    const seenItems = new Map<string, number>(locked.filter((m) => m.item).map((m) => [m.item!.toLowerCase(), m.slot]));
-    const built: TeamMon[] = [];
-
-    for (const s of proposed) {
-      if (!isLegalSpecies(s.species, ruleset)) { errors.push(`Slot ${s.slot}: ${s.species} is not usable in ${getRuleset(ruleset).short}.`); continue; }
-      const set = await buildSetFromUsage(s.species, {
-        ability: s.ability,
-        item: s.item,
-        nature: s.nature,
-        moves: s.moves,
-        sp: s.sp as SpSpread | undefined,
-      }, ruleset);
-      const setErrors = await validateProposal(set.species, { ability: set.ability, item: set.item, moves: set.moves, sp: set.sp }, ruleset);
-      errors.push(...setErrors.map((e) => `Slot ${s.slot}: ${e}`));
-      if (set.moves.filter(Boolean).length < 4) errors.push(`Slot ${s.slot} (${set.species}): needs 4 moves, got ${set.moves.filter(Boolean).length}.`);
-      const dupSpecies = seenSpecies.get(set.species.toLowerCase());
-      if (dupSpecies !== undefined) errors.push(`Slot ${s.slot}: ${set.species} is already in slot ${dupSpecies} (Species Clause).`);
-      else seenSpecies.set(set.species.toLowerCase(), s.slot);
-      if (set.item) {
-        const dupItem = seenItems.get(set.item.toLowerCase());
-        if (dupItem !== undefined) errors.push(`Slot ${s.slot}: ${set.item} is already held by slot ${dupItem} (Item Clause).`);
-        else seenItems.set(set.item.toLowerCase(), s.slot);
-      }
-
-      let computedStats = ZERO_STATS;
-      try {
-        computedStats = computeStats({ species: set.species, ability: set.ability, item: set.item, nature: set.nature, sp: set.sp });
-      } catch (e) {
-        errors.push(`Slot ${s.slot}: ${(e as Error).message}`);
-      }
-      built.push({
-        slot: s.slot,
-        nickname: null,
-        species: set.species,
-        item: set.item,
-        ability: set.ability,
-        nature: set.nature,
-        sp: set.sp,
-        moves: padMoves(set.moves),
-        computedStats,
-        role: (s.role ?? '').trim(),
-        benchmarks: [],
-      });
-    }
-
-    if (errors.length) return { error: `Team rejected — fix these and call submitTeam again:\n- ${errors.join('\n- ')}` };
-    accepted = { slots: built, summary: (args.summary ?? '').trim() };
-    return { status: 'ok', message: 'Team accepted.' };
-  };
-
-  const { toolCalls, exhausted } = await runToolLoop({
-    client: input.client,
-    system: systemInstruction,
-    messages: [{ role: 'user', text: input.prompt.trim() || 'Build the strongest, most standard team you can for the current metagame.' }],
-    declarations: [lookupUsageDeclaration, compareSpeedDeclaration, calcDamageDeclaration, submitTeamDeclaration],
-    maxRounds: MAX_ROUNDS,
+  const system = await buildSystemInstruction(locked, openSlots, ruleset);
+  return {
+    v: 1,
     ruleset,
-    stopWhen: () => accepted !== null,
-    dispatch: async (name, args) => {
-      if (name === 'submitTeam') return executeSubmitTeam(args as SubmitTeamArgs);
-      return { error: `Unknown tool: ${name}` };
-    },
-  });
+    system,
+    messages: [{ role: 'user', text: input.prompt.trim() || 'Build the strongest, most standard team you can for the current metagame.' }],
+    slots,
+    round: 0,
+    toolNames: [],
+  };
+}
 
-  if (!accepted) {
-    throw new Error(exhausted ? 'The builder ran out of steps before finishing a legal team. Try a more specific description.' : 'The builder finished without submitting a team. Try again.');
+function describeRound(calls: { name: string; args: unknown }[]): string {
+  const species = (c: { args: unknown }) => (c.args as { species?: string })?.species;
+  const looked = calls.filter((c) => c.name === 'lookupUsage').map(species).filter(Boolean) as string[];
+  const parts: string[] = [];
+  if (looked.length) parts.push(`looked up ${looked.slice(0, 4).join(', ')}${looked.length > 4 ? ` +${looked.length - 4}` : ''}`);
+  const speed = calls.filter((c) => c.name === 'compareSpeed').length;
+  if (speed) parts.push(`checked ${speed} speed matchup${speed > 1 ? 's' : ''}`);
+  const dmg = calls.filter((c) => c.name === 'calcDamage').length;
+  if (dmg) parts.push(`ran ${dmg} damage calc${dmg > 1 ? 's' : ''}`);
+  if (calls.some((c) => c.name === 'submitTeam')) parts.push('validating the team');
+  return parts.length ? parts.join(' · ') : 'thinking';
+}
+
+/**
+ * Run exactly one model round: generate, execute every tool call (in parallel), append the
+ * results. Returns the accepted team on the round that passes verification.
+ */
+export async function stepBuild(client: LlmClient, state: BuildState): Promise<BuildStep> {
+  if (state.round >= MAX_ROUNDS) {
+    throw new Error('The builder ran out of steps before finishing a legal team. Try a more specific description.');
   }
-  const { slots: builtSlots, summary } = accepted as { slots: TeamMon[]; summary: string };
-  const result = [...slots];
-  for (const m of builtSlots) result[m.slot - 1] = m;
-  return { team: result, summary, toolCalls };
+  const resp = await client.generate({ system: state.system, messages: state.messages, tools: DECLARATIONS });
+  if (resp.toolCalls.length === 0) {
+    throw new Error('The builder finished without submitting a team. Try again, or describe what you want more specifically.');
+  }
+  state.messages.push({ role: 'assistant', text: resp.text, toolCalls: resp.toolCalls, raw: resp.raw });
+
+  let accepted: { built: TeamMon[]; summary: string } | null = null;
+  const results = await Promise.all(resp.toolCalls.map(async (call) => {
+    let result = await executeSharedTool(call.name, call.args, state.ruleset);
+    if (result === undefined) {
+      if (call.name === 'submitTeam') {
+        const v = await verifySubmission(call.args as unknown as SubmitTeamArgs, state.slots, state.ruleset);
+        if (v.errors.length) result = { error: `Team rejected — fix these and call submitTeam again:\n- ${v.errors.join('\n- ')}` };
+        else { accepted = { built: v.built, summary: v.summary }; result = { status: 'ok', message: 'Team accepted.' }; }
+      } else {
+        result = { error: `Unknown tool: ${call.name}` };
+      }
+    }
+    return { id: call.id, name: call.name, result };
+  }));
+  state.messages.push({ role: 'tool', results });
+  state.round += 1;
+  state.toolNames.push(...resp.toolCalls.map((c) => c.name));
+
+  const progress = describeRound(resp.toolCalls);
+  if (!accepted) return { state, progress, done: null };
+  const { built, summary } = accepted as { built: TeamMon[]; summary: string };
+  const team = [...state.slots];
+  for (const m of built) team[m.slot - 1] = m;
+  return { state, progress: 'team accepted', done: { team, summary, toolCalls: state.toolNames.map((name) => ({ name })) } };
+}
+
+/** Convenience for non-HTTP callers (tests, scripts): run steps until done. */
+export async function buildTeam(client: LlmClient, input: BuildTeamInput): Promise<BuildTeamResult> {
+  let state = await startBuild(input);
+  for (;;) {
+    const step = await stepBuild(client, state);
+    if (step.done) return step.done;
+    state = step.state;
+  }
 }

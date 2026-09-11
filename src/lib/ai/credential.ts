@@ -192,9 +192,9 @@ export class AiDenied extends Error {
  *   interactive=true  → BYOK, else the free tier (signed-in users only, counted), else AiDenied.
  *   interactive=false → BYOK only; returns null so the caller uses its deterministic fallback.
  */
-export async function resolveAi(req: Request, opts: { interactive: true }): Promise<AiGrant>;
+export async function resolveAi(req: Request, opts: { interactive: true; consume?: boolean }): Promise<AiGrant>;
 export async function resolveAi(req: Request, opts: { interactive: false }): Promise<AiGrant | null>;
-export async function resolveAi(req: Request, opts: { interactive: boolean }): Promise<AiGrant | null> {
+export async function resolveAi(req: Request, opts: { interactive: boolean; consume?: boolean }): Promise<AiGrant | null> {
   const byok = await readByok();
   if (byok) {
     return {
@@ -215,17 +215,39 @@ export async function resolveAi(req: Request, opts: { interactive: boolean }): P
     throw new AiDenied('sign_in_required', 'Sign in (top right) to use the built-in AI, or connect your own API key.');
   }
   const quota = quotaStore();
-  const used = await quota.used(identity.id);
-  if (used >= FREE_CHAT_LIMIT) {
-    throw new AiDenied('quota_exhausted', "That's all the built-in AI I can cover for you :) Add one of your own API keys to keep going — it stays on this device and is never stored on the server.");
+  // consume:false = a continuation of a request that was already charged (multi-step team build).
+  if (opts.consume !== false) {
+    const used = await quota.used(identity.id);
+    if (used >= FREE_CHAT_LIMIT) {
+      throw new AiDenied('quota_exhausted', "That's all the built-in AI I can cover for you :) Add one of your own API keys to keep going — it stays on this device and is never stored on the server.");
+    }
+    await quota.consume(identity.id);
   }
-  await quota.consume(identity.id);
   return {
     client: createLlmClient(free),
     source: 'free',
     refund: () => quota.refund(identity.id),
     headers: { 'X-AI-Source': 'free', 'X-AI-Provider': free.provider },
   };
+}
+
+// ─── Signed opaque state (multi-step requests) ────────────────────────────────
+
+/** Serialize server state the client will hand back later; the HMAC stops tampering. */
+export function sealState(state: unknown): string {
+  const body = Buffer.from(JSON.stringify(state), 'utf8').toString('base64url');
+  return `${body}.${sign(body)}`;
+}
+
+export function openState<T>(token: unknown): T | null {
+  if (typeof token !== 'string') return null;
+  const body = verifySigned(token);
+  if (!body) return null;
+  try {
+    return JSON.parse(Buffer.from(body, 'base64url').toString('utf8')) as T;
+  } catch {
+    return null;
+  }
 }
 
 /** What the key panel shows. No numbers: the limit and the count stay on the server. */

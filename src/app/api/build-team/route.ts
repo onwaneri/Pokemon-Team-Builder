@@ -1,50 +1,60 @@
 /**
- * POST /api/build-team
+ * POST /api/build-team — one round of the team builder per request.
  *
- * Body: { prompt: string, team: (TeamMon | null)[], regulation?: RulesetId }
- * Response: { team: (TeamMon | null)[], summary: string, toolCalls: { name }[] }
+ * Start:    { prompt, team, regulation? }  → charges one free request (or uses the visitor's key),
+ *                                            prepares the build, runs the first round.
+ * Continue: { state }                       → runs the next round on the signed state from the
+ *                                            previous response; never re-charges.
+ * Response: { state, progress, done }      where `done` is { team, summary, toolCalls } on the
+ *                                            round that produced an accepted team, else null.
  *
- * Fills the empty slots of `team` around the filled ones (which are kept untouched). See
- * lib/ai/buildTeam.ts for the process and validation. Interactive: runs on the visitor's key or
- * spends one free request.
+ * Splitting the loop keeps every request under a single model call, so it fits serverless
+ * request limits regardless of how many research rounds the model needs.
  */
 import { NextResponse } from 'next/server';
-import { buildTeam } from '@/lib/ai/buildTeam';
+import { startBuild, stepBuild, type BuildState } from '@/lib/ai/buildTeam';
 import type { TeamMon } from '@/lib/benchmarks/types';
 import { getRuleset } from '@/lib/rulesets';
-import { resolveAi, AiDenied, denialResponse } from '@/lib/ai/credential';
+import { resolveAi, AiDenied, denialResponse, sealState, openState } from '@/lib/ai/credential';
 import { LlmError } from '@/lib/ai/llm';
 
 export const runtime = 'nodejs';
-// Research + validation loops can take a while.
-export const maxDuration = 120;
+export const maxDuration = 60;
 
 export async function POST(req: Request) {
-  let body: { prompt?: string; team?: (TeamMon | null)[]; regulation?: string };
+  let body: { prompt?: string; team?: (TeamMon | null)[]; regulation?: string; state?: string };
   try {
     body = (await req.json()) as typeof body;
   } catch {
     return NextResponse.json({ error: 'Invalid JSON body.' }, { status: 400 });
   }
-  const team = Array.isArray(body.team) ? body.team : [];
+
+  const continuing = typeof body.state === 'string';
+  let state: BuildState | null = null;
+  if (continuing) {
+    state = openState<BuildState>(body.state);
+    if (!state || state.v !== 1) return NextResponse.json({ error: 'The build state is invalid or expired. Start again.' }, { status: 400 });
+  }
 
   let grant;
   try {
-    grant = await resolveAi(req, { interactive: true });
+    grant = await resolveAi(req, { interactive: true, consume: !continuing });
   } catch (e) {
     if (e instanceof AiDenied) return denialResponse(e);
     throw e;
   }
 
   try {
-    const result = await buildTeam({ client: grant.client, prompt: body.prompt ?? '', team, regulation: getRuleset(body.regulation).id });
-    return NextResponse.json({
-      team: result.team,
-      summary: result.summary,
-      toolCalls: result.toolCalls.map((t) => ({ name: t.name })),
-    }, { headers: grant.headers });
+    if (!state) {
+      state = await startBuild({ prompt: body.prompt ?? '', team: Array.isArray(body.team) ? body.team : [], regulation: getRuleset(body.regulation).id });
+    }
+    const step = await stepBuild(grant.client, state);
+    return NextResponse.json(
+      { state: step.done ? null : sealState(step.state), progress: step.progress, round: step.state.round, done: step.done },
+      { headers: grant.headers },
+    );
   } catch (e) {
-    await grant.refund();
+    if (!continuing) await grant.refund();
     const status = e instanceof LlmError ? e.status : 500;
     return NextResponse.json({ error: (e as Error).message ?? 'Team build failed.' }, { status, headers: grant.headers });
   }

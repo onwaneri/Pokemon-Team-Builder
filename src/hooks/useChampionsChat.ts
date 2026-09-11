@@ -10,7 +10,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { TeamMon } from '@/lib/benchmarks/types';
 import type { RulesetId } from '@/lib/rulesets';
-import { aiFetch } from '@/lib/aiFetch';
+import { aiFetch, readJson } from '@/lib/aiFetch';
 import type {
   ChatAction,
   ScreenContext,
@@ -72,7 +72,7 @@ export function useChampionsChat(opts: {
           regulation,
         }),
       });
-      const data = await r.json();
+      const data = await readJson<{ error?: string; text?: string; actions?: ChatAction[]; toolCalls?: ToolInvocationSummary[] }>(r);
       if (!r.ok) {
         setError(data.error ?? 'Chat failed.');
         return;

@@ -221,7 +221,7 @@ function AiKeyPanel({ status, notice, onClose, onChanged }: { status: AiStatus; 
             <>That&apos;s all the built-in AI I can cover for your account :) Add one of your own keys below to keep chatting, building, and optimizing.</>
           ) : status.free.signedIn ? (
             <>
-              You&apos;re on the site&apos;s built-in AI. <strong style={{ color: '#e4e4f8' }}>Please don&apos;t drain my account :)</strong> Chat, team builds, SP optimizations, and benchmark parsing all run on it; when it runs out you&apos;ll be asked to add one of your own keys. Connect a key below any time for unlimited use.
+              You&apos;re on the site&apos;s built-in AI. <strong style={{ color: '#e4e4f8' }}>Please don&apos;t drain my account :)</strong>{' '}Chat, team builds, SP optimizations, and benchmark parsing all run on it; when it runs out you&apos;ll be asked to add one of your own keys. Connect a key below any time for unlimited use.
             </>
           ) : (
             <>Sign in (top right) to use the built-in AI for free, or connect your own key below.</>

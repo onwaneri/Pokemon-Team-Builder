@@ -251,6 +251,14 @@ function openAiCompatibleClient(cred: LlmCredential & { provider: 'openai' | 'op
         }
       }
       const body: Record<string, unknown> = { model, messages };
+      // Reasoning models default to medium effort, which meant 30–130 s per round for what is a
+      // tool-lookup workload. Low effort keeps rounds in the single digits of seconds.
+      if (/^(gpt-5|o\d)/.test(model)) {
+        if (cred.provider === 'openrouter') body.reasoning = { effort: 'low' };
+        else { body.reasoning_effort = 'low'; body.verbosity = 'low'; }
+      } else if (cred.provider === 'openrouter' && /gpt-5|\/o\d|reasoning|thinking/.test(model)) {
+        body.reasoning = { effort: 'low' };
+      }
       if (opts.tools?.length) {
         body.tools = opts.tools.map((t) => ({
           type: 'function',

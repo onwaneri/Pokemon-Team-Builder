@@ -156,8 +156,10 @@ ${openSlots.join(', ')}
 1. Read the user's description. Decide the archetype and the roles the open slots need (speed control,
    Fake Out / redirection support, a Mega, physical + special damage, answers to the top of the usage
    rankings). Respect any species, style, or constraint the user names.
-2. For every Pokémon you consider, call lookupUsage and base the set on real data: featured sets, top
-   moves/items/abilities, and the topSpread for SP. Adjust only with a concrete reason.
+2. Call lookupUsage for EVERY candidate you are considering IN ONE TURN (issue all the calls at once —
+   they run in parallel), then base each set on real data: featured sets, top moves/items/abilities, and
+   the topSpread for SP. Adjust only with a concrete reason. Aim to finish in 3–4 turns total: research,
+   one or two checks, submit.
 3. Use compareSpeed to confirm any speed relationship you rely on (e.g. "outspeeds base 100s"), and
    calcDamage for one or two key benchmarks if a spread decision hinges on them.
 4. Call submitTeam once with every open slot filled. Each set needs 4 moves and an SP spread that sums to

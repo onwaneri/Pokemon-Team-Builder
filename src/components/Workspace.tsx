@@ -124,6 +124,8 @@ export default function Workspace({ lists }: { lists: FormLists }) {
   // Team persistence: localStorage as a guest, the user's Firestore library when signed in.
   const { store: teamStore, storeVersion, user } = useAuth();
   const [localTeamsToMove, setLocalTeamsToMove] = useState(0);
+  /** Last persistence failure (Firestore rules, network, quota) — shown in the toolbar until dismissed. */
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   // ─── Library / editor mode ─────────────────────────────────────────────────
   const [mode, setMode] = useState<'library' | 'editor'>('library');
@@ -241,6 +243,23 @@ export default function Workspace({ lists }: { lists: FormLists }) {
 
   // ─── Save flow ─────────────────────────────────────────────────────────────
   async function saveCurrentTeam(name: string) {
+    if (!team) return;
+    setSaveError(null);
+    try {
+      await persistCurrentTeam(name);
+    } catch (e) {
+      const code = (e as { code?: string })?.code ?? '';
+      const msg = code === 'permission-denied'
+        ? 'Firestore rejected the save (permission denied). The team did not save.'
+        : code === 'unavailable'
+          ? 'Could not reach Firestore (offline or blocked network). The team did not save.'
+          : `Save failed: ${(e as Error)?.message ?? String(e)}`;
+      console.error('[save]', e);
+      setSaveError(msg);
+    }
+  }
+
+  async function persistCurrentTeam(name: string) {
     if (!team) return;
     const now = Date.now();
     const hash = teamHash(team);
@@ -784,6 +803,13 @@ export default function Workspace({ lists }: { lists: FormLists }) {
           </div>
 
           {/* Everything the current ruleset or the importer flagged, in one row */}
+          {saveError && (
+            <div style={{ borderRadius: 9, border: '1px solid rgba(248,113,113,0.35)', background: 'rgba(239,68,68,0.09)', padding: '8px 12px', fontSize: 11, color: '#fca5a5', flexShrink: 0, display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span style={{ flex: 1 }}>{saveError}</span>
+              <button onClick={() => setSaveError(null)} style={{ background: 'none', border: 'none', color: '#f87171', cursor: 'pointer', fontSize: 14, lineHeight: 1 }}>×</button>
+            </div>
+          )}
+
           {allIssues.length > 0 && (
             <div
               style={{

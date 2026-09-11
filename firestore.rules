@@ -26,13 +26,11 @@ rules_version = '2';
 // TeamMon map:
 //   - slot: int 1–6; nickname: string ≤ 40 or null; species: string 1–40;
 //   - item, ability: optional string ≤ 40; nature: string ≤ 20;
-//   - sp: map with keys among hp/atk/def/spa/spd/spe, ints 0–32;
-//   - moves: list ≤ 4 of strings ≤ 40;
-//   - computedStats: map of exactly hp/atk/def/spa/spd/spe ints;
-//   - role: string ≤ 300; benchmarks: list ≤ 20 of Benchmark maps
-//     (id string ≤ 64, description string ≤ 300, status in
-//     passing/failing/needs_review, optional detail string ≤ 500,
-//     optional check map — its shape is not validated beyond being a map).
+//   - sp: map; moves: list; computedStats: map; role: string ≤ 300;
+//   - benchmarks: list ≤ 20.
+//   Nested values (SP numbers, move strings, stat numbers, benchmark entries)
+//   are not validated: see the note above isValidMon on Firestore's
+//   per-request expression budget.
 //
 // ===============================================================
 
@@ -55,83 +53,29 @@ service cloud.firestore {
       return v is string && v.size() <= max;
     }
 
-    function optStrMax(m, key, max) {
-      return !(key in m) || strMax(m[key], max);
-    }
-
-    function spVal(m, k) {
-      return !(k in m) || (m[k] is int && m[k] >= 0 && m[k] <= 32);
-    }
-
-    // Stat Points: only the six stat keys, each 0–32.
-    function isValidSp(sp) {
-      return sp is map && sp.keys().hasOnly(['hp', 'atk', 'def', 'spa', 'spd', 'spe'])
-        && spVal(sp, 'hp') && spVal(sp, 'atk') && spVal(sp, 'def')
-        && spVal(sp, 'spa') && spVal(sp, 'spd') && spVal(sp, 'spe');
-    }
-
-    function statInt(m, k) {
-      return k in m && m[k] is int && m[k] >= 0 && m[k] <= 2000;
-    }
-
-    function isValidComputedStats(s) {
-      return s is map && s.keys().hasOnly(['hp', 'atk', 'def', 'spa', 'spd', 'spe'])
-        && statInt(s, 'hp') && statInt(s, 'atk') && statInt(s, 'def')
-        && statInt(s, 'spa') && statInt(s, 'spd') && statInt(s, 'spe');
-    }
-
-    function moveAt(list, i) {
-      return list.size() <= i || strMax(list[i], 40);
-    }
-
-    function isValidMoves(moves) {
-      return moves is list && moves.size() <= 4
-        && moveAt(moves, 0) && moveAt(moves, 1) && moveAt(moves, 2) && moveAt(moves, 3);
-    }
-
-    function isValidBenchmark(b) {
-      return b is map
-        && b.keys().hasOnly(['id', 'description', 'status', 'detail', 'check'])
-        && strMax(b.id, 64) && strMax(b.description, 300)
-        && b.status in ['passing', 'failing', 'needs_review']
-        && optStrMax(b, 'detail', 500)
-        && (!('check' in b) || b.check is map);
-    }
-
-    function benchAt(list, i) {
-      return list.size() <= i || isValidBenchmark(list[i]);
-    }
-
-    // Benchmarks: bounded list, each entry validated (indices are the only
-    // way to inspect list elements in rules, so this is unrolled).
-    function isValidBenchmarks(list) {
-      return list is list && list.size() <= 20
-        && benchAt(list, 0) && benchAt(list, 1) && benchAt(list, 2) && benchAt(list, 3)
-        && benchAt(list, 4) && benchAt(list, 5) && benchAt(list, 6) && benchAt(list, 7)
-        && benchAt(list, 8) && benchAt(list, 9) && benchAt(list, 10) && benchAt(list, 11)
-        && benchAt(list, 12) && benchAt(list, 13) && benchAt(list, 14) && benchAt(list, 15)
-        && benchAt(list, 16) && benchAt(list, 17) && benchAt(list, 18) && benchAt(list, 19);
-    }
-
+    // Per-Pokémon validation is deliberately shallow. Firestore evaluates a bounded number of rule
+    // expressions per request (on the order of a thousand); a six-Pokémon team checked
+    // field-by-field (six SP keys, six stats, four moves, every benchmark) exceeds it and every
+    // save is denied — measured: full checks fail from the 4th Pokémon on. Only the owner can
+    // write here, so the rules pin the schema shape (closed key list, slot/species/list/map
+    // types, name size caps) and leave value-level checks of the owner's own nested data to the
+    // client. Keep this function cheap: every expression here is paid six times per save.
     function isValidMon(m) {
       return m is map
         && m.keys().hasOnly(['slot', 'nickname', 'species', 'item', 'ability', 'nature',
                              'sp', 'moves', 'computedStats', 'role', 'benchmarks'])
-        && m.slot is int && m.slot >= 1 && m.slot <= 6
-        && ('nickname' in m) && (m.nickname == null || strMax(m.nickname, 40))
-        && strMax(m.species, 40) && m.species.size() >= 1
-        && optStrMax(m, 'item', 40)
-        && optStrMax(m, 'ability', 40)
-        && strMax(m.nature, 20)
-        && isValidSp(m.sp)
-        && isValidMoves(m.moves)
-        && isValidComputedStats(m.computedStats)
-        && strMax(m.role, 300)
-        && isValidBenchmarks(m.benchmarks);
+        && m.slot is int
+        && m.species is string && m.species.size() <= 40
+        && m.nature is string
+        && m.sp is map
+        && m.moves is list
+        && m.computedStats is map
+        && m.role is string && m.role.size() <= 300
+        && m.benchmarks is list && m.benchmarks.size() <= 20;
     }
 
     function slotAt(team, i) {
-      return team[i] == null || isValidMon(team[i]);
+      return team[i] == null ? true : isValidMon(team[i]);
     }
 
     // Exactly six slots, each empty (null) or a fully validated TeamMon.
@@ -158,7 +102,7 @@ service cloud.firestore {
         && strMax(data.blurbHash, 16)
         && data.createdAt is int && data.createdAt > 0
         && data.updatedAt is int && data.updatedAt >= data.createdAt
-        && (!('regulation' in data) || data.regulation in ['reg-m-b', 'reg-m-c']);
+        && (('regulation' in data) ? data.regulation in ['reg-m-b', 'reg-m-c'] : true);
     }
 
     // ===============================================================

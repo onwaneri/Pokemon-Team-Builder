@@ -2,20 +2,10 @@
 
 import { useRef, useState, type ReactNode } from 'react';
 import type { Benchmark, BenchmarkStatus, TeamMon } from '@/lib/benchmarks/types';
-import {
-  STAT_ORDER,
-  STAT_LABEL,
-  SP_PER_STAT_MAX,
-  SP_TOTAL_MAX,
-  validateSp,
-  clampSpToBudget,
-  calcChampionsStats,
-  natureMultiplier,
-  type Stat,
-  type SpSpread,
-} from '@/lib/calc/sp';
+import { calcChampionsStats, type SpSpread } from '@/lib/calc/sp';
 import { padMoves } from '@/lib/moves';
 import Combobox from '@/components/Combobox';
+import SpEditor from '@/components/SpEditor';
 import type { FormLists } from '@/lib/data/champions';
 import type { PopularSet } from '@/lib/data/usage';
 import { useUsage, usageSortedItems } from '@/hooks/useUsage';
@@ -218,7 +208,6 @@ function SlotWorkspace({ mon: draft, update, lists, onPasteImport }: {
   const benchmarkRef = useRef<HTMLInputElement>(null);
   const moveRefs = useRef<(HTMLInputElement | null)[]>([]);
 
-  const v = validateSp(draft.sp);
   const baseStats = lists.speciesStats[draft.species];
   const abilityOptions = lists.speciesAbilities[draft.species]?.length ? lists.speciesAbilities[draft.species] : lists.abilities;
   const itemOptions = usageSortedItems(lists.items, usage?.items ?? []);
@@ -232,11 +221,6 @@ function SlotWorkspace({ mon: draft, update, lists, onPasteImport }: {
     const base = lists.speciesStats[species];
     const computedStats = base ? calcChampionsStats(base, draft.sp, draft.nature) : draft.computedStats;
     update({ ...draft, species, ability: abilities[0] ?? '', item: '', computedStats });
-  }
-  function changeSp(stat: Stat, value: number) {
-    const clamped = clampSpToBudget(draft.sp, stat, value);
-    const sp = { ...draft.sp, [stat]: clamped };
-    update({ ...draft, sp, computedStats: recompute(sp, draft.nature) });
   }
   function changeNature(nature: string) {
     update({ ...draft, nature, computedStats: recompute(draft.sp, nature) });
@@ -314,7 +298,6 @@ function SlotWorkspace({ mon: draft, update, lists, onPasteImport }: {
   }
 
   const moves = padMoves(draft.moves);
-  const spTotal = Object.values(draft.sp).reduce((a: number, b) => a + (b ?? 0), 0);
 
   const fieldLabel: React.CSSProperties = { fontSize: 9, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 1, color: '#40406a', marginBottom: 5 };
   const fieldInput: React.CSSProperties = { background: 'rgba(4,4,14,0.85)', border: '1px solid rgba(99,102,241,0.16)', borderRadius: 8, padding: '8px 12px', fontSize: 13, fontWeight: 700, color: '#c0c0e4', cursor: 'pointer', width: '100%', outline: 'none', colorScheme: 'dark' };
@@ -480,55 +463,12 @@ function SlotWorkspace({ mon: draft, update, lists, onPasteImport }: {
         </div>
 
         {/* Stat Points */}
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-            <div style={fieldLabel}>Stat Points</div>
-            <span style={{ fontSize: 11, fontWeight: 800, color: v.ok ? '#5858a0' : '#f87171' }}>{spTotal} / {SP_TOTAL_MAX}</span>
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-            {STAT_ORDER.map((s) => {
-              const mult = natureMultiplier(draft.nature, s);
-              const boost = s !== 'hp' && mult > 1;
-              const drop = s !== 'hp' && mult < 1;
-              const spVal = draft.sp[s] ?? 0;
-              const labelColor = boost ? '#34d399' : drop ? '#f87171' : '#6868a8';
-              const barColor = spVal > 0 ? (boost ? '#34d399' : drop ? '#f87171' : '#6366f1') : 'rgba(255,255,255,0.04)';
-              const statColor = boost ? '#34d399' : drop ? '#f87171' : '#d0d0f0';
-              return (
-                <div key={s} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ width: 36, fontSize: 11, fontWeight: 800, color: labelColor, flexShrink: 0, letterSpacing: '0.1px' }}>
-                    {STAT_LABEL[s]}{boost ? ' +' : drop ? ' −' : ''}
-                  </span>
-                  <span style={{ width: 22, textAlign: 'right', fontSize: 10, color: '#35355a', flexShrink: 0, fontWeight: 600 }}>
-                    {baseStats?.[s] ?? '—'}
-                  </span>
-                  <div
-                    style={{ flex: 1, height: 7, borderRadius: 4, background: 'rgba(255,255,255,0.045)', overflow: 'hidden', cursor: 'pointer' }}
-                    onClick={(e) => {
-                      const rect = e.currentTarget.getBoundingClientRect();
-                      changeSp(s, Math.round(((e.clientX - rect.left) / rect.width) * SP_PER_STAT_MAX));
-                    }}
-                  >
-                    <div style={{ height: '100%', borderRadius: 4, transition: 'width 0.28s ease', background: barColor, width: spVal > 0 ? `${(spVal / SP_PER_STAT_MAX) * 100}%` : '3px' }} />
-                  </div>
-                  <input
-                    type="number"
-                    min={0}
-                    max={SP_PER_STAT_MAX}
-                    value={spVal}
-                    onChange={(e) => changeSp(s, Number(e.target.value))}
-                    onWheel={(e) => e.currentTarget.blur()}
-                    style={{ width: 28, textAlign: 'center', background: 'transparent', border: 'none', outline: 'none', color: '#545480', fontWeight: 700, fontSize: 11, padding: 0, flexShrink: 0 }}
-                  />
-                  <span style={{ width: 30, textAlign: 'right', fontFamily: "'Courier New', monospace", fontSize: 12, fontWeight: 700, color: statColor, flexShrink: 0 }}>
-                    {draft.computedStats[s]}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-          {!v.ok && <p style={{ marginTop: 4, fontSize: 11, color: '#f87171' }}>{v.errors[0]}</p>}
-        </div>
+        <SpEditor
+          sp={draft.sp}
+          nature={draft.nature}
+          baseStats={baseStats}
+          onChange={(sp) => update({ ...draft, sp, computedStats: recompute(sp, draft.nature) })}
+        />
 
         {/* Benchmarks */}
         <div>

@@ -39,3 +39,37 @@ body {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
 }
+
+/* Stat Point sliders (SpEditor). The filled track is painted by an inline gradient. */
+.sp-range {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 6px;
+  border-radius: 3px;
+  outline: none;
+  cursor: pointer;
+}
+.sp-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #e4e4f8;
+  border: 2px solid rgba(11,11,26,0.9);
+  box-shadow: 0 0 0 1px rgba(99,102,241,0.5);
+}
+.sp-range::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #e4e4f8;
+  border: 2px solid rgba(11,11,26,0.9);
+  box-shadow: 0 0 0 1px rgba(99,102,241,0.5);
+}
+.sp-range::-moz-range-track {
+  background: transparent;
+}
+.sp-range:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 3px rgba(99,102,241,0.45);
+}

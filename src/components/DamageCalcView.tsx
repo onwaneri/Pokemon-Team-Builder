@@ -2,15 +2,7 @@
 
 import { useState, useRef, useEffect, type ReactNode } from 'react';
 import type { TeamMon } from '@/lib/benchmarks/types';
-import {
-  STAT_ORDER,
-  STAT_LABEL,
-  SP_PER_STAT_MAX,
-  SP_TOTAL_MAX,
-  validateSp,
-  type SpSpread,
-  type StatSpread,
-} from '@/lib/calc/sp';
+import type { SpSpread, StatSpread } from '@/lib/calc/sp';
 import { padMoves } from '@/lib/moves';
 import Combobox from '@/components/Combobox';
 import type { PopularSet } from '@/lib/data/usage';
@@ -18,6 +10,7 @@ import { useUsage, usageSortedItems } from '@/hooks/useUsage';
 import type { CalcMonSet, CalcScreenState, CompareOpponent } from '@/lib/ai/types';
 import type { FormLists } from '@/lib/data/champions';
 import CompareStrip from '@/components/CompareStrip';
+import SpEditor from '@/components/SpEditor';
 import { useRuleset } from '@/components/RulesetProvider';
 import PopularSets from '@/components/PopularSets';
 import { MonSprite, TypePill, MoveTypeTag, MegaBadge, moveOptionNode } from '@/components/ui';
@@ -155,8 +148,6 @@ export default function DamageCalcView({ lists, team, state, onChange, runToken 
   }
 
   const activeResp = activeKey ? moveResults[activeKey] : null;
-  const atkStats = activeKey?.startsWith('atk:') ? activeResp?.attackerStats : activeResp?.defenderStats;
-  const defStats = activeKey?.startsWith('atk:') ? activeResp?.defenderStats : activeResp?.attackerStats;
 
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
@@ -195,13 +186,13 @@ export default function DamageCalcView({ lists, team, state, onChange, runToken 
         <SetEditor
           title="Attacker" side="atk" set={attacker}
           onChange={setAttacker}
-          lists={lists} stats={atkStats} moveResults={moveResults} activeKey={activeKey}
+          lists={lists} moveResults={moveResults} activeKey={activeKey}
           onMoveClick={(m) => calcMove(m, 'atk')}
         />
         <SetEditor
           title="Defender" side="def" set={defender}
           onChange={setDefender}
-          lists={lists} stats={defStats} moveResults={moveResults} activeKey={activeKey}
+          lists={lists} moveResults={moveResults} activeKey={activeKey}
           onMoveClick={(m) => calcMove(m, 'def')}
         />
       </div>
@@ -289,18 +280,16 @@ export default function DamageCalcView({ lists, team, state, onChange, runToken 
 
 // ─── Set editor ───────────────────────────────────────────────────────────────
 
-function SetEditor({ title, side, set, onChange, lists, stats, moveResults, activeKey, onMoveClick }: {
+function SetEditor({ title, side, set, onChange, lists, moveResults, activeKey, onMoveClick }: {
   title: string;
   side: 'atk' | 'def';
   set: MonSet;
   onChange: (s: MonSet) => void;
   lists: FormLists;
-  stats?: StatSpread;
   moveResults: MoveResultMap;
   activeKey: string | null;
   onMoveClick: (m: string) => void;
 }) {
-  const v = validateSp(set.sp);
   const { usage } = useUsage(set.species);
   const abilityOptions = lists.speciesAbilities[set.species]?.length ? lists.speciesAbilities[set.species] : lists.abilities;
   const itemOptions = usageSortedItems(lists.items, usage?.items ?? []);
@@ -449,29 +438,13 @@ function SetEditor({ title, side, set, onChange, lists, stats, moveResults, acti
 
       {/* SP */}
       <div style={{ marginBottom: usage?.sets?.length ? 11 : 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-          <div style={fieldLabel}>Stat Points</div>
-          <span style={{ fontSize: 10, fontWeight: 700, color: v.ok ? '#5858a0' : '#f87171' }}>
-            {v.total} / {SP_TOTAL_MAX}
-          </span>
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 3 }}>
-          {STAT_ORDER.map((s) => (
-            <label key={s} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-              <span style={{ fontSize: 9, color: '#50508a', fontWeight: 700, marginBottom: 2 }}>{STAT_LABEL[s]}</span>
-              <input
-                type="number"
-                min={0}
-                max={SP_PER_STAT_MAX}
-                value={set.sp[s] ?? 0}
-                onChange={(e) => onChange({ ...set, sp: { ...set.sp, [s]: clampSp(e.target.value) } })}
-                style={{ width: '100%', background: 'rgba(4,4,14,0.85)', border: '1px solid rgba(99,102,241,0.14)', borderRadius: 5, padding: '3px 2px', textAlign: 'center', fontSize: 10, color: '#b0b0d4', outline: 'none', fontWeight: 700, colorScheme: 'dark' } as React.CSSProperties}
-              />
-              {stats && <span style={{ marginTop: 2, fontSize: 9, color: '#40406a', fontFamily: "'Courier New', monospace" }}>{stats[s]}</span>}
-            </label>
-          ))}
-        </div>
-        {!v.ok && <p style={{ marginTop: 4, fontSize: 10, color: '#f87171' }}>{v.errors[0]}</p>}
+        <SpEditor
+          compact
+          sp={set.sp}
+          nature={set.nature}
+          baseStats={lists.speciesStats[set.species]}
+          onChange={(sp) => onChange({ ...set, sp })}
+        />
       </div>
 
       {/* Popular sets */}
@@ -677,8 +650,3 @@ function CalcSelect({ value, onChange, children }: { value: string; onChange: (v
   );
 }
 
-function clampSp(raw: string): number {
-  const n = Math.floor(Number(raw));
-  if (Number.isNaN(n) || n < 0) return 0;
-  return Math.min(SP_PER_STAT_MAX, n);
-}

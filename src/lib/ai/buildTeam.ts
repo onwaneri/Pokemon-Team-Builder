@@ -1,0 +1,235 @@
+/**
+ * Agentic team builder.
+ *
+ * Takes a loose description ("rain with a Trick Room mode", "something around Garchomp and
+ * Incineroar") plus whatever the user already placed, and fills the remaining slots. The model
+ * researches with the shared engine tools (lookupUsage for real sets and spreads, compareSpeed
+ * for tiers, calcDamage for key benchmarks) and finishes by calling `submitTeam`. Every submitted
+ * set goes through the same legality gate as chat proposals; errors are returned to the model so
+ * it corrects and resubmits. Slots the user already filled are locked — the server keeps the
+ * originals no matter what the model returns.
+ *
+ * Server-only.
+ */
+import { Type, type FunctionDeclaration } from '@google/genai';
+import type { LlmClient } from '@/lib/ai/llm';
+import { fetchFormatRankings, resolveUsageFormat } from '@/lib/data/usage';
+import { listItems, isLegalSpecies } from '@/lib/data/champions';
+import { computeStats } from '@/lib/calc/engine';
+import { championsMeta } from '@/lib/data/meta';
+import { getRuleset, DEFAULT_RULESET, type RulesetId } from '@/lib/rulesets';
+import type { TeamMon } from '@/lib/benchmarks/types';
+import { ZERO_STATS, type SpSpread } from '@/lib/calc/sp';
+import { padMoves } from '@/lib/moves';
+import {
+  calcDamageDeclaration,
+  lookupUsageDeclaration,
+  compareSpeedDeclaration,
+  spSchema,
+  validateProposal,
+  buildSetFromUsage,
+  runToolLoop,
+  fmtSp,
+  type ToolInvocation,
+} from '@/lib/ai/tools';
+
+const MAX_ROUNDS = 40;
+
+export interface BuildTeamInput {
+  client: LlmClient;
+  prompt: string;
+  team: (TeamMon | null)[];
+  regulation?: RulesetId;
+}
+
+export interface BuildTeamResult {
+  team: (TeamMon | null)[];
+  summary: string;
+  toolCalls: ToolInvocation[];
+}
+
+interface SubmittedSlot {
+  slot: number;
+  species: string;
+  ability?: string;
+  item?: string;
+  nature?: string;
+  moves?: string[];
+  sp?: Record<string, number>;
+  role?: string;
+}
+interface SubmitTeamArgs {
+  slots: SubmittedSlot[];
+  summary: string;
+}
+
+const submitTeamDeclaration: FunctionDeclaration = {
+  name: 'submitTeam',
+  description:
+    'Submit the finished team. Include one entry per slot you are filling (never the locked slots). Each set must be complete: ability, item, nature, four moves, and an SP spread (0–32 per stat, ≤66 total). If validation errors come back, fix them and submit again.',
+  parameters: {
+    type: Type.OBJECT,
+    properties: {
+      slots: {
+        type: Type.ARRAY,
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            slot: { type: Type.NUMBER, description: 'Slot number (1–6).' },
+            species: { type: Type.STRING, description: 'Exact engine species name, e.g. "Dragonite-Mega".' },
+            ability: { type: Type.STRING },
+            item: { type: Type.STRING },
+            nature: { type: Type.STRING },
+            moves: { type: Type.ARRAY, items: { type: Type.STRING }, description: 'Exactly 4 moves.' },
+            sp: spSchema,
+            role: { type: Type.STRING, description: 'One sentence: what this Pokémon does on the team.' },
+          },
+          required: ['slot', 'species', 'ability', 'item', 'nature', 'moves', 'sp', 'role'],
+        },
+      },
+      summary: { type: Type.STRING, description: '2–3 sentences on how the finished team plays: archetype, win condition, speed-control plan.' },
+    },
+    required: ['slots', 'summary'],
+  },
+};
+
+async function buildSystemInstruction(locked: TeamMon[], openSlots: number[], ruleset: RulesetId): Promise<string> {
+  const rules = getRuleset(ruleset);
+  const legalItems = listItems(ruleset);
+  const [rankings, source] = await Promise.all([fetchFormatRankings(ruleset).catch(() => []), resolveUsageFormat(ruleset).catch(() => null)]);
+  const sourceCaveat = source?.fallbackFrom
+    ? `  NOTE: Pikalytics has not published ${rules.short} data yet — this is ${source.format} data. Pokémon new to ${rules.short} have no usage; judge them from the ruleset notes, typing, and stats, and still call lookupUsage (it may 404 for them — that is expected).\n`
+    : '';
+  const rankingsSection = sourceCaveat + (rankings.length
+    ? rankings.slice(0, 30).map((r) => `  ${r.rank}. ${r.species}${r.winRatePct != null ? ` — ${r.winRatePct}% win rate${r.record ? ` over ${r.record}` : ''}` : ''}`).join('\n')
+    : '  (rankings unavailable — rely on lookupUsage per species)');
+  const lockedSection = locked.length
+    ? locked.map((m) => `  Slot ${m.slot}: ${m.species} @ ${m.item || '—'} | ${m.ability || '—'} | ${m.nature} | ${m.moves.filter(Boolean).join('/') || 'no moves'} | SP ${fmtSp(m.sp)}`).join('\n')
+    : '  (none — build the whole team)';
+
+  return `${championsMeta(ruleset)}
+
+You are building a Pokémon Champions (VGC doubles, ${rules.label}, Level 50, bring 4 of 6) team inside a team-building tool.
+
+═══ RULES ═══
+• Stat Points (SP): 0–32 per stat, 66 total. Never mention EVs/IVs. 1 SP ≈ 1 final stat point.
+• No Terastallization.
+• Mega Evolution: use exact hyphenated names ("Dragonite-Mega"). Only ONE Mega can evolve per battle, so
+  carry at most one Mega unless the user explicitly asks for two options.
+• Species Clause: no duplicate species. Item Clause: no duplicate items.
+• LEGAL ITEMS (complete ${rules.short} whitelist): ${legalItems.join(', ')}.
+• Every set is validated against the dex, per-species abilities, learnsets, and the SP budget. Fix and
+  resubmit on error.
+
+═══ LIVE USAGE (Pikalytics, format ${source?.format ?? rules.pikalyticsFormats[0]}) ═══
+${rankingsSection}
+
+═══ LOCKED SLOTS (already chosen by the user — keep them exactly, build around them) ═══
+${lockedSection}
+
+═══ SLOTS TO FILL ═══
+${openSlots.join(', ')}
+
+═══ PROCESS ═══
+1. Read the user's description. Decide the archetype and the roles the open slots need (speed control,
+   Fake Out / redirection support, a Mega, physical + special damage, answers to the top of the usage
+   rankings). Respect any species, style, or constraint the user names.
+2. For every Pokémon you consider, call lookupUsage and base the set on real data: featured sets, top
+   moves/items/abilities, and the topSpread for SP. Adjust only with a concrete reason.
+3. Use compareSpeed to confirm any speed relationship you rely on (e.g. "outspeeds base 100s"), and
+   calcDamage for one or two key benchmarks if a spread decision hinges on them.
+4. Call submitTeam once with every open slot filled. Each set needs 4 moves and an SP spread that sums to
+   at most 66. Give each Pokémon a one-sentence role and write a 2–3 sentence summary.
+Do not write a long essay; the summary field is the only prose the user sees.`;
+}
+
+export async function buildTeam(input: BuildTeamInput): Promise<BuildTeamResult> {
+  const slots: (TeamMon | null)[] = Array(6).fill(null);
+  for (const m of input.team) if (m && m.slot >= 1 && m.slot <= 6) slots[m.slot - 1] = m;
+  const locked = slots.filter((m): m is TeamMon => m !== null);
+  const openSlots = slots.map((m, i) => (m ? null : i + 1)).filter((n): n is number => n !== null);
+  if (!openSlots.length) throw new Error('The team is already full.');
+
+  const ruleset = input.regulation ?? DEFAULT_RULESET;
+  const systemInstruction = await buildSystemInstruction(locked, openSlots, ruleset);
+  let accepted: { slots: TeamMon[]; summary: string } | null = null;
+
+  const executeSubmitTeam = async (args: SubmitTeamArgs): Promise<unknown> => {
+    const errors: string[] = [];
+    const proposed = (args.slots ?? []).filter((s) => openSlots.includes(s.slot));
+    const missing = openSlots.filter((n) => !proposed.some((s) => s.slot === n));
+    if (missing.length) errors.push(`Missing sets for slot(s) ${missing.join(', ')}.`);
+
+    const seenSpecies = new Map<string, number>(locked.map((m) => [m.species.toLowerCase(), m.slot]));
+    const seenItems = new Map<string, number>(locked.filter((m) => m.item).map((m) => [m.item!.toLowerCase(), m.slot]));
+    const built: TeamMon[] = [];
+
+    for (const s of proposed) {
+      if (!isLegalSpecies(s.species, ruleset)) { errors.push(`Slot ${s.slot}: ${s.species} is not usable in ${getRuleset(ruleset).short}.`); continue; }
+      const set = await buildSetFromUsage(s.species, {
+        ability: s.ability,
+        item: s.item,
+        nature: s.nature,
+        moves: s.moves,
+        sp: s.sp as SpSpread | undefined,
+      }, ruleset);
+      const setErrors = await validateProposal(set.species, { ability: set.ability, item: set.item, moves: set.moves, sp: set.sp }, ruleset);
+      errors.push(...setErrors.map((e) => `Slot ${s.slot}: ${e}`));
+      if (set.moves.filter(Boolean).length < 4) errors.push(`Slot ${s.slot} (${set.species}): needs 4 moves, got ${set.moves.filter(Boolean).length}.`);
+      const dupSpecies = seenSpecies.get(set.species.toLowerCase());
+      if (dupSpecies !== undefined) errors.push(`Slot ${s.slot}: ${set.species} is already in slot ${dupSpecies} (Species Clause).`);
+      else seenSpecies.set(set.species.toLowerCase(), s.slot);
+      if (set.item) {
+        const dupItem = seenItems.get(set.item.toLowerCase());
+        if (dupItem !== undefined) errors.push(`Slot ${s.slot}: ${set.item} is already held by slot ${dupItem} (Item Clause).`);
+        else seenItems.set(set.item.toLowerCase(), s.slot);
+      }
+
+      let computedStats = ZERO_STATS;
+      try {
+        computedStats = computeStats({ species: set.species, ability: set.ability, item: set.item, nature: set.nature, sp: set.sp });
+      } catch (e) {
+        errors.push(`Slot ${s.slot}: ${(e as Error).message}`);
+      }
+      built.push({
+        slot: s.slot,
+        nickname: null,
+        species: set.species,
+        item: set.item,
+        ability: set.ability,
+        nature: set.nature,
+        sp: set.sp,
+        moves: padMoves(set.moves),
+        computedStats,
+        role: (s.role ?? '').trim(),
+        benchmarks: [],
+      });
+    }
+
+    if (errors.length) return { error: `Team rejected — fix these and call submitTeam again:\n- ${errors.join('\n- ')}` };
+    accepted = { slots: built, summary: (args.summary ?? '').trim() };
+    return { status: 'ok', message: 'Team accepted.' };
+  };
+
+  const { toolCalls, exhausted } = await runToolLoop({
+    client: input.client,
+    system: systemInstruction,
+    messages: [{ role: 'user', text: input.prompt.trim() || 'Build the strongest, most standard team you can for the current metagame.' }],
+    declarations: [lookupUsageDeclaration, compareSpeedDeclaration, calcDamageDeclaration, submitTeamDeclaration],
+    maxRounds: MAX_ROUNDS,
+    ruleset,
+    stopWhen: () => accepted !== null,
+    dispatch: async (name, args) => {
+      if (name === 'submitTeam') return executeSubmitTeam(args as SubmitTeamArgs);
+      return { error: `Unknown tool: ${name}` };
+    },
+  });
+
+  if (!accepted) {
+    throw new Error(exhausted ? 'The builder ran out of steps before finishing a legal team. Try a more specific description.' : 'The builder finished without submitting a team. Try again.');
+  }
+  const { slots: builtSlots, summary } = accepted as { slots: TeamMon[]; summary: string };
+  const result = [...slots];
+  for (const m of builtSlots) result[m.slot - 1] = m;
+  return { team: result, summary, toolCalls };
+}

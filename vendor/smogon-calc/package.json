@@ -1,0 +1,9 @@
+{
+  "name": "@smogon/calc",
+  "version": "0.11.0-champions.c246cab",
+  "description": "Vendored @smogon/calc with Pokémon Champions (gen 0) support. Built from smogon/damage-calc master @ c246cab (2026-06-25), which ships Champions support not yet released to npm. Rebuild instructions in README.md.",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "license": "MIT",
+  "repository": "github:smogon/damage-calc"
+}

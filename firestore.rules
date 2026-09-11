@@ -1,0 +1,189 @@
+rules_version = '2';
+
+// ===============================================================
+// Assumed Data Model
+// ===============================================================
+//
+// This security rules file assumes the following data structures
+// (source of truth: src/lib/library/types.ts, src/lib/benchmarks/types.ts,
+// src/lib/library/firestoreStore.ts).
+//
+// Collection: users/{uid}/teams
+// Document ID: the SavedTeam.id (a client-generated UUID); must equal `id`.
+// Written with setDoc (full replace) by the owner only; read with getDoc /
+// getDocs on the subcollection. No other collections exist.
+// Fields:
+//   - id: string (required, == document id, ≤ 64) - immutable
+//   - ownerUid: string (required, == request.auth.uid) - immutable
+//   - name: string (required, 1–100)
+//   - team: list (required, exactly 6 entries; each null or a TeamMon map)
+//   - blurb: string (required, ≤ 2000)
+//   - blurbHash: string (required, ≤ 16)
+//   - createdAt: int (required, Unix ms) - immutable
+//   - updatedAt: int (required, Unix ms)
+//   - regulation: string (optional, 'reg-m-b' | 'reg-m-c')
+//
+// TeamMon map:
+//   - slot: int 1–6; nickname: string ≤ 40 or null; species: string 1–40;
+//   - item, ability: optional string ≤ 40; nature: string ≤ 20;
+//   - sp: map with keys among hp/atk/def/spa/spd/spe, ints 0–32;
+//   - moves: list ≤ 4 of strings ≤ 40;
+//   - computedStats: map of exactly hp/atk/def/spa/spd/spe ints;
+//   - role: string ≤ 300; benchmarks: list ≤ 20 of Benchmark maps
+//     (id string ≤ 64, description string ≤ 300, status in
+//     passing/failing/needs_review, optional detail string ≤ 500,
+//     optional check map — its shape is not validated beyond being a map).
+//
+// ===============================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function strMax(v, max) {
+      return v is string && v.size() <= max;
+    }
+
+    function optStrMax(m, key, max) {
+      return !(key in m) || strMax(m[key], max);
+    }
+
+    function spVal(m, k) {
+      return !(k in m) || (m[k] is int && m[k] >= 0 && m[k] <= 32);
+    }
+
+    // Stat Points: only the six stat keys, each 0–32.
+    function isValidSp(sp) {
+      return sp is map && sp.keys().hasOnly(['hp', 'atk', 'def', 'spa', 'spd', 'spe'])
+        && spVal(sp, 'hp') && spVal(sp, 'atk') && spVal(sp, 'def')
+        && spVal(sp, 'spa') && spVal(sp, 'spd') && spVal(sp, 'spe');
+    }
+
+    function statInt(m, k) {
+      return k in m && m[k] is int && m[k] >= 0 && m[k] <= 2000;
+    }
+
+    function isValidComputedStats(s) {
+      return s is map && s.keys().hasOnly(['hp', 'atk', 'def', 'spa', 'spd', 'spe'])
+        && statInt(s, 'hp') && statInt(s, 'atk') && statInt(s, 'def')
+        && statInt(s, 'spa') && statInt(s, 'spd') && statInt(s, 'spe');
+    }
+
+    function moveAt(list, i) {
+      return list.size() <= i || strMax(list[i], 40);
+    }
+
+    function isValidMoves(moves) {
+      return moves is list && moves.size() <= 4
+        && moveAt(moves, 0) && moveAt(moves, 1) && moveAt(moves, 2) && moveAt(moves, 3);
+    }
+
+    function isValidBenchmark(b) {
+      return b is map
+        && b.keys().hasOnly(['id', 'description', 'status', 'detail', 'check'])
+        && strMax(b.id, 64) && strMax(b.description, 300)
+        && b.status in ['passing', 'failing', 'needs_review']
+        && optStrMax(b, 'detail', 500)
+        && (!('check' in b) || b.check is map);
+    }
+
+    function benchAt(list, i) {
+      return list.size() <= i || isValidBenchmark(list[i]);
+    }
+
+    // Benchmarks: bounded list, each entry validated (indices are the only
+    // way to inspect list elements in rules, so this is unrolled).
+    function isValidBenchmarks(list) {
+      return list is list && list.size() <= 20
+        && benchAt(list, 0) && benchAt(list, 1) && benchAt(list, 2) && benchAt(list, 3)
+        && benchAt(list, 4) && benchAt(list, 5) && benchAt(list, 6) && benchAt(list, 7)
+        && benchAt(list, 8) && benchAt(list, 9) && benchAt(list, 10) && benchAt(list, 11)
+        && benchAt(list, 12) && benchAt(list, 13) && benchAt(list, 14) && benchAt(list, 15)
+        && benchAt(list, 16) && benchAt(list, 17) && benchAt(list, 18) && benchAt(list, 19);
+    }
+
+    function isValidMon(m) {
+      return m is map
+        && m.keys().hasOnly(['slot', 'nickname', 'species', 'item', 'ability', 'nature',
+                             'sp', 'moves', 'computedStats', 'role', 'benchmarks'])
+        && m.slot is int && m.slot >= 1 && m.slot <= 6
+        && ('nickname' in m) && (m.nickname == null || strMax(m.nickname, 40))
+        && strMax(m.species, 40) && m.species.size() >= 1
+        && optStrMax(m, 'item', 40)
+        && optStrMax(m, 'ability', 40)
+        && strMax(m.nature, 20)
+        && isValidSp(m.sp)
+        && isValidMoves(m.moves)
+        && isValidComputedStats(m.computedStats)
+        && strMax(m.role, 300)
+        && isValidBenchmarks(m.benchmarks);
+    }
+
+    function slotAt(team, i) {
+      return team[i] == null || isValidMon(team[i]);
+    }
+
+    // Exactly six slots, each empty (null) or a fully validated TeamMon.
+    function isValidTeamSlots(team) {
+      return team is list && team.size() == 6
+        && slotAt(team, 0) && slotAt(team, 1) && slotAt(team, 2)
+        && slotAt(team, 3) && slotAt(team, 4) && slotAt(team, 5);
+    }
+
+    // ===============================================================
+    // Domain Validator (used by BOTH create and update)
+    // ===============================================================
+
+    function isValidSavedTeam(data, userId, teamId) {
+      return data.keys().hasOnly(['id', 'ownerUid', 'name', 'team', 'blurb', 'blurbHash',
+                                  'createdAt', 'updatedAt', 'regulation'])
+        && data.keys().hasAll(['id', 'ownerUid', 'name', 'team', 'blurb', 'blurbHash',
+                               'createdAt', 'updatedAt'])
+        && data.id == teamId && strMax(data.id, 64)
+        && data.ownerUid == userId
+        && strMax(data.name, 100) && data.name.size() >= 1
+        && isValidTeamSlots(data.team)
+        && strMax(data.blurb, 2000)
+        && strMax(data.blurbHash, 16)
+        && data.createdAt is int && data.createdAt > 0
+        && data.updatedAt is int && data.updatedAt >= data.createdAt
+        && (!('regulation' in data) || data.regulation in ['reg-m-b', 'reg-m-c']);
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    // A user's team library. Private to that user; the parent users/{uid}
+    // document is never created or read (no PII stored anywhere).
+    match /users/{userId}/teams/{teamId} {
+      allow read: if isOwner(userId);
+
+      allow create: if isOwner(userId)
+        && isValidSavedTeam(request.resource.data, userId, teamId);
+
+      allow update: if isOwner(userId)
+        && isValidSavedTeam(request.resource.data, userId, teamId)
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.ownerUid == resource.data.ownerUid;
+
+      allow delete: if isOwner(userId);
+    }
+
+    // Everything else is denied.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

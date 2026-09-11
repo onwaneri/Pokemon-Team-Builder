@@ -1,0 +1,21 @@
+{
+  "auth": {
+    "authorizedDomains": [
+      "localhost",
+      "pokemon-vgc-tool.firebaseapp.com",
+      "pokemon-vgc-tool.web.app",
+      "scored-bingo-highlighted-pot.trycloudflare.com"
+    ],
+    "providers": {
+      "emailPassword": true,
+      "googleSignIn": {
+        "oAuthBrandDisplayName": "VGC Champions Tool",
+        "supportEmail": "ndnwaneri2028@u.northwestern.edu"
+      }
+    }
+  },
+  "firestore": {
+    "rules": "firestore.rules",
+    "indexes": "firestore.indexes.json"
+  }
+}

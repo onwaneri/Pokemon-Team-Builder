@@ -1,0 +1,61 @@
+/**
+ * /api/ai-key — connect, inspect, or remove the visitor's own AI key.
+ *
+ * GET    → { byok, free, identity, providers }   (never the key itself; a fingerprint at most)
+ * POST   { provider, apiKey, model? } → validates the key with the provider, then seals it into an
+ *          httpOnly cookie (see lib/ai/credential.ts). Nothing is written server-side.
+ * PATCH  { model } → re-seals the connected key with a different model.
+ * DELETE → clears the cookie.
+ * Model lists live at /api/ai-key/models.
+ */
+import { NextResponse } from 'next/server';
+import { aiStatus, writeByok, clearByok, updateByokModel } from '@/lib/ai/credential';
+import { isProviderId, keyFingerprint, PROVIDERS, PROVIDER_IDS, validateCredential } from '@/lib/ai/llm';
+
+export const runtime = 'nodejs';
+
+export async function GET(req: Request) {
+  const status = await aiStatus(req);
+  return NextResponse.json({
+    ...status,
+    providers: PROVIDER_IDS.map((id) => ({ id, label: PROVIDERS[id].label, defaultModel: PROVIDERS[id].defaultModel, models: PROVIDERS[id].models, keyPrefixHint: PROVIDERS[id].keyPrefixHint, consoleUrl: PROVIDERS[id].consoleUrl })),
+  });
+}
+
+export async function POST(req: Request) {
+  let body: { provider?: unknown; apiKey?: unknown; model?: unknown };
+  try {
+    body = (await req.json()) as typeof body;
+  } catch {
+    return NextResponse.json({ error: 'Invalid JSON body.' }, { status: 400 });
+  }
+  if (!isProviderId(body.provider)) return NextResponse.json({ error: 'Unknown provider.' }, { status: 400 });
+  const apiKey = typeof body.apiKey === 'string' ? body.apiKey.trim() : '';
+  if (apiKey.length < 16 || apiKey.length > 512 || /\s/.test(apiKey)) return NextResponse.json({ error: 'That does not look like an API key.' }, { status: 400 });
+  const model = typeof body.model === 'string' && body.model.trim() ? body.model.trim().slice(0, 100) : PROVIDERS[body.provider].defaultModel;
+
+  const check = await validateCredential({ provider: body.provider, apiKey, model });
+  if (!check.ok) return NextResponse.json({ error: `The ${PROVIDERS[body.provider].label} key was rejected: ${check.error}` }, { status: 400 });
+
+  await writeByok({ provider: body.provider, apiKey, model });
+  return NextResponse.json({ ok: true, byok: { provider: body.provider, model, fingerprint: keyFingerprint(apiKey) } });
+}
+
+export async function DELETE() {
+  await clearByok();
+  return NextResponse.json({ ok: true });
+}
+
+export async function PATCH(req: Request) {
+  let body: { model?: unknown };
+  try {
+    body = (await req.json()) as typeof body;
+  } catch {
+    return NextResponse.json({ error: 'Invalid JSON body.' }, { status: 400 });
+  }
+  const model = typeof body.model === 'string' ? body.model.trim().slice(0, 100) : '';
+  if (!model) return NextResponse.json({ error: 'model is required.' }, { status: 400 });
+  const ok = await updateByokModel(model);
+  if (!ok) return NextResponse.json({ error: 'No key is connected.' }, { status: 400 });
+  return NextResponse.json({ ok: true, model });
+}

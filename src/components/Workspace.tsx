@@ -676,7 +676,7 @@ export default function Workspace({ lists }: { lists: FormLists }) {
       importing={importing}
       error={error}
       replace={importTarget === 'replace'}
-      onImport={doImport}
+      onImport={() => doImport()}
       onSample={() => setPaste(SAMPLE_PASTE)}
       onClose={() => { if (!importing) setShowImport(false); }}
     />

@@ -44,5 +44,5 @@ export function usageSortedItems(items: string[], usageItems: UsageData['items']
   const topValid = usageItems.map((e) => e.name).filter((n) => items.includes(n));
   if (!topValid.length) return items;
   const rest = items.filter((n) => !topValid.includes(n));
-  return [...topValid, { header: 'Rarely used' }, ...rest];
+  return [{ header: 'Common', hint: 'by usage' }, ...topValid, { header: 'Other items' }, ...rest];
 }

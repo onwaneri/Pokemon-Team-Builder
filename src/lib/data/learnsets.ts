@@ -14,6 +14,8 @@
  * Server-only (walks the full @pkmn/dex learnset dataset; coverage set built once and cached).
  */
 import { Dex } from '@pkmn/dex';
+import { listMoves } from './champions';
+import type { RulesetId } from '@/lib/rulesets';
 
 export type LearnVerdict = 'yes' | 'no' | 'unknown';
 
@@ -31,25 +33,79 @@ function movesWithLearnsetCoverage(): Promise<Set<string>> {
   })());
 }
 
+/**
+ * Every move id in the learnsets along the forme → base species → prevo chain (Megas carry no
+ * learnset of their own; egg moves may only be recorded on earlier evolution stages). Null when
+ * the dex does not know the species at all.
+ */
+const chainCache = new Map<string, Promise<Set<string> | null>>();
+function chainMoveIds(speciesName: string): Promise<Set<string> | null> {
+  let p = chainCache.get(speciesName);
+  if (!p) {
+    p = (async () => {
+      if (!Dex.species.get(speciesName)?.exists) return null;
+      const ids = new Set<string>();
+      let current: string | undefined = speciesName;
+      const seen = new Set<string>();
+      while (current) {
+        const sp = Dex.species.get(current);
+        if (!sp?.exists || seen.has(sp.id)) break;
+        seen.add(sp.id);
+        const l = await Dex.learnsets.get(sp.id);
+        for (const id of Object.keys(l?.learnset ?? {})) ids.add(id);
+        current = sp.baseSpecies !== sp.name ? sp.baseSpecies : sp.prevo || undefined;
+      }
+      return ids;
+    })();
+    chainCache.set(speciesName, p);
+  }
+  return p;
+}
+
 export async function canLearn(speciesName: string, moveName: string): Promise<LearnVerdict> {
   const move = Dex.moves.get(moveName);
   if (!move?.exists) return 'unknown';
   if (!(await movesWithLearnsetCoverage()).has(move.id)) return 'unknown';
+  const chain = await chainMoveIds(speciesName);
+  if (!chain) return 'unknown';
+  return chain.has(move.id) ? 'yes' : 'no';
+}
 
-  // Union the learnsets along the forme → base species → prevo chain (Megas carry no learnset of
-  // their own; egg moves may only be recorded on earlier evolution stages).
-  if (!Dex.species.get(speciesName)?.exists) return 'unknown';
-  let current: string | undefined = speciesName;
-  const seen = new Set<string>();
-  while (current) {
-    const sp = Dex.species.get(current);
-    if (!sp?.exists || seen.has(sp.id)) break;
-    seen.add(sp.id);
-    const l = await Dex.learnsets.get(sp.id);
-    if (l?.learnset?.[move.id]) return 'yes';
-    current = sp.baseSpecies !== sp.name ? sp.baseSpecies : sp.prevo || undefined;
+/** A species' legal move pool split by learnset verdict, for the move pickers. */
+export interface SpeciesLearnset {
+  species: string;
+  /** False when the dex does not know the species: every legal move is offered, none is verified. */
+  verified: boolean;
+  /** Legal moves found in the forme → base → prevo learnset chain, alphabetical. */
+  learnable: string[];
+  /** Legal moves the dex has no evidence about (Champions-only, or taught to nobody in Gen 9). */
+  unverified: string[];
+}
+
+const learnsetCache = new Map<string, Promise<SpeciesLearnset>>();
+/** Memoized per ruleset+species; the whole pool is classified in one pass (~1 ms after warmup). */
+export function learnsetFor(speciesName: string, reg: RulesetId): Promise<SpeciesLearnset> {
+  const key = `${reg}:${speciesName}`;
+  let p = learnsetCache.get(key);
+  if (!p) {
+    p = (async () => {
+      const pool = listMoves(reg);
+      const chain = await chainMoveIds(speciesName);
+      if (!chain) return { species: speciesName, verified: false, learnable: pool, unverified: [] };
+      const covered = await movesWithLearnsetCoverage();
+      const learnable: string[] = [];
+      const unverified: string[] = [];
+      for (const name of pool) {
+        const move = Dex.moves.get(name);
+        if (!move?.exists || !covered.has(move.id)) unverified.push(name);
+        else if (chain.has(move.id)) learnable.push(name);
+      }
+      return { species: speciesName, verified: true, learnable, unverified };
+    })();
+    learnsetCache.set(key, p);
+    p.catch(() => learnsetCache.delete(key));
   }
-  return 'no';
+  return p;
 }
 
 /** Human-readable learnset violations for a moveset, with the graft's provenance stated. */

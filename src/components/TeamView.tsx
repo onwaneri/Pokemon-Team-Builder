@@ -9,9 +9,10 @@ import SpEditor from '@/components/SpEditor';
 import type { FormLists } from '@/lib/data/champions';
 import type { PopularSet } from '@/lib/data/usage';
 import { useUsage, usageSortedItems } from '@/hooks/useUsage';
+import { useLearnset, moveOptionsFor } from '@/hooks/useLearnset';
 import { aiFetch } from '@/lib/aiFetch';
 import PopularSets from '@/components/PopularSets';
-import { MonSprite, TypePill, MoveTypeTag, MegaBadge, speciesOptionNode, moveOptionNode } from '@/components/ui';
+import { MonSprite, TypePill, MoveTypeTag, MegaBadge, DescLine, speciesOptionNode, moveOptionNode, itemOptionNode } from '@/components/ui';
 
 type TeamSlot = TeamMon | null;
 
@@ -196,6 +197,7 @@ function SlotWorkspace({ mon: draft, update, lists, onPasteImport }: {
   onPasteImport: (paste: string) => Promise<string | null>;
 }) {
   const { usage, loadingUsage } = useUsage(draft.species);
+  const { learnset } = useLearnset(draft.species);
   const [benchmarkInput, setBenchmarkInput] = useState('');
   const [benchmarkAdding, setBenchmarkAdding] = useState(false);
   const [showPaste, setShowPaste] = useState(false);
@@ -212,6 +214,7 @@ function SlotWorkspace({ mon: draft, update, lists, onPasteImport }: {
   const abilityOptions = lists.speciesAbilities[draft.species]?.length ? lists.speciesAbilities[draft.species] : lists.abilities;
   const itemOptions = usageSortedItems(lists.items, usage?.items ?? []);
   const itemPct = new Map((usage?.items ?? []).map((e) => [e.name, e.pct]));
+  const moveSections = moveOptionsFor(lists.moves, usage?.moves, learnset);
 
   function recompute(sp: SpSpread, nature: string) {
     return baseStats ? calcChampionsStats(baseStats, sp, nature) : draft.computedStats;
@@ -387,13 +390,14 @@ function SlotWorkspace({ mon: draft, update, lists, onPasteImport }: {
           <div>
             <div style={fieldLabel}>Ability</div>
             {abilityOptions.length <= 1 ? (
-              <div style={fieldInput}>{draft.ability || abilityOptions[0] || '—'}</div>
+              <div style={fieldInput} title={lists.abilityDesc[draft.ability || abilityOptions[0]]}>{draft.ability || abilityOptions[0] || '—'}</div>
             ) : (
               <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
                 {abilityOptions.map((a) => (
                   <button
                     key={a}
                     onClick={() => update({ ...draft, ability: a })}
+                    title={lists.abilityDesc[a]}
                     style={{
                       padding: '5px 11px', borderRadius: 7, cursor: 'pointer', fontSize: 11, fontWeight: 700,
                       border: `1px solid ${draft.ability === a ? '#6366f1' : 'rgba(99,102,241,0.22)'}`,
@@ -406,6 +410,7 @@ function SlotWorkspace({ mon: draft, update, lists, onPasteImport }: {
                 ))}
               </div>
             )}
+            <DescLine text={lists.abilityDesc[draft.ability || abilityOptions[0]]} />
           </div>
           <div>
             <div style={fieldLabel}>Item</div>
@@ -414,16 +419,10 @@ function SlotWorkspace({ mon: draft, update, lists, onPasteImport }: {
               onChange={(item) => update({ ...draft, item })}
               options={itemOptions}
               placeholder="Item"
-              renderOption={(name) => {
-                const pct = itemPct.get(name);
-                return (
-                  <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                    <span>{name}</span>
-                    {pct ? <span style={{ fontSize: 10, color: '#50507a' }}>{pct}%</span> : null}
-                  </span>
-                );
-              }}
+              title={lists.itemDesc[draft.item ?? '']}
+              renderOption={(name, active) => itemOptionNode(name, lists, { pct: itemPct.get(name), active })}
             />
+            <DescLine text={draft.item ? lists.itemDesc[draft.item] : undefined} />
           </div>
         </div>
 
@@ -442,20 +441,25 @@ function SlotWorkspace({ mon: draft, update, lists, onPasteImport }: {
             {[0, 1, 2, 3].map((i) => {
               const moveName = moves[i];
               const info = moveName ? lists.moveInfo[moveName] : null;
+              const offLearnset = !!moveName && moveSections.notLearnable.has(moveName);
               return (
-                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'rgba(4,4,14,0.85)', border: '1px solid rgba(99,102,241,0.16)', borderRadius: 8, padding: '4px 8px', minWidth: 0 }}>
-                  {info?.type && <MoveTypeTag type={info.type} />}
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <Combobox
-                      value={moveName}
-                      onChange={(val) => changeMove(i, val)}
-                      options={lists.moves}
-                      placeholder={`Move ${i + 1}`}
-                      inputRef={(el) => { moveRefs.current[i] = el; }}
-                      onAfterSelect={() => focusNextEmptyMove(i)}
-                      renderOption={(name) => moveOptionNode(name, lists)}
-                    />
+                <div key={i} style={{ background: 'rgba(4,4,14,0.85)', border: `1px solid ${offLearnset ? 'rgba(212,165,74,0.35)' : 'rgba(99,102,241,0.16)'}`, borderRadius: 8, padding: '4px 8px 5px', minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                    {info?.type && <MoveTypeTag type={info.type} />}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <Combobox
+                        value={moveName}
+                        onChange={(val) => changeMove(i, val)}
+                        options={moveSections.options}
+                        placeholder={`Move ${i + 1}`}
+                        title={info?.desc}
+                        inputRef={(el) => { moveRefs.current[i] = el; }}
+                        onAfterSelect={() => focusNextEmptyMove(i)}
+                        renderOption={(name, active) => moveOptionNode(name, lists, { pct: moveSections.pct.get(name), active })}
+                      />
+                    </div>
                   </div>
+                  <DescLine text={info?.desc} note={offLearnset ? 'Not in Gen 9 learnset' : undefined} style={{ marginTop: 2, paddingLeft: 2 }} />
                 </div>
               );
             })}

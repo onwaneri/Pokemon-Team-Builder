@@ -7,13 +7,14 @@ import { padMoves } from '@/lib/moves';
 import Combobox from '@/components/Combobox';
 import type { PopularSet } from '@/lib/data/usage';
 import { useUsage, usageSortedItems } from '@/hooks/useUsage';
+import { useLearnset, moveOptionsFor } from '@/hooks/useLearnset';
 import type { CalcMonSet, CalcScreenState, CompareOpponent } from '@/lib/ai/types';
 import type { FormLists } from '@/lib/data/champions';
 import CompareStrip from '@/components/CompareStrip';
 import SpEditor from '@/components/SpEditor';
 import { useRuleset } from '@/components/RulesetProvider';
 import PopularSets from '@/components/PopularSets';
-import { MonSprite, TypePill, MoveTypeTag, MegaBadge, moveOptionNode } from '@/components/ui';
+import { MonSprite, TypePill, MoveTypeTag, MegaBadge, DescLine, moveOptionNode, itemOptionNode } from '@/components/ui';
 
 type MonSet = CalcMonSet;
 
@@ -291,8 +292,11 @@ function SetEditor({ title, side, set, onChange, lists, moveResults, activeKey, 
   onMoveClick: (m: string) => void;
 }) {
   const { usage } = useUsage(set.species);
+  const { learnset } = useLearnset(set.species);
   const abilityOptions = lists.speciesAbilities[set.species]?.length ? lists.speciesAbilities[set.species] : lists.abilities;
   const itemOptions = usageSortedItems(lists.items, usage?.items ?? []);
+  const itemPct = new Map((usage?.items ?? []).map((e) => [e.name, e.pct]));
+  const moveSections = moveOptionsFor(lists.moves, usage?.moves, learnset);
 
   const topSpreadAppliedRef = useRef<string | null>(null);
   useEffect(() => {
@@ -361,11 +365,32 @@ function SetEditor({ title, side, set, onChange, lists, moveResults, activeKey, 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginBottom: 11 }}>
         <div>
           <div style={fieldLabel}>Ability</div>
-          <Combobox value={set.ability} onChange={(ability) => onChange({ ...set, ability })} options={abilityOptions} placeholder="Ability" />
+          <Combobox
+            value={set.ability}
+            onChange={(ability) => onChange({ ...set, ability })}
+            options={abilityOptions}
+            placeholder="Ability"
+            title={lists.abilityDesc[set.ability]}
+            renderOption={(name, active) => (
+              <span style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
+                <span>{name}</span>
+                {lists.abilityDesc[name] && <span style={{ fontSize: 10, fontWeight: 500, color: active ? 'rgba(255,255,255,0.72)' : '#6a6a9a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{lists.abilityDesc[name]}</span>}
+              </span>
+            )}
+          />
+          <DescLine text={lists.abilityDesc[set.ability]} />
         </div>
         <div>
           <div style={fieldLabel}>Item</div>
-          <Combobox value={set.item} onChange={(item) => onChange({ ...set, item })} options={itemOptions} placeholder="Item" />
+          <Combobox
+            value={set.item}
+            onChange={(item) => onChange({ ...set, item })}
+            options={itemOptions}
+            placeholder="Item"
+            title={lists.itemDesc[set.item]}
+            renderOption={(name, active) => itemOptionNode(name, lists, { pct: itemPct.get(name), active })}
+          />
+          <DescLine text={lists.itemDesc[set.item]} />
         </div>
       </div>
 
@@ -386,12 +411,13 @@ function SetEditor({ title, side, set, onChange, lists, moveResults, activeKey, 
             const result = key ? moveResults[key]?.result : null;
             const isActive = key !== null && key === activeKey;
             const info = moveName ? lists.moveInfo[moveName] : null;
+            const offLearnset = !!moveName && moveSections.notLearnable.has(moveName);
             return (
               <div
                 key={i}
                 style={{
                   background: isActive ? (isAtk ? 'rgba(248,113,113,0.12)' : 'rgba(147,197,253,0.1)') : 'rgba(4,4,14,0.85)',
-                  border: `1px solid ${isActive ? (isAtk ? 'rgba(248,113,113,0.3)' : 'rgba(147,197,253,0.25)') : 'rgba(99,102,241,0.13)'}`,
+                  border: `1px solid ${isActive ? (isAtk ? 'rgba(248,113,113,0.3)' : 'rgba(147,197,253,0.25)') : offLearnset ? 'rgba(212,165,74,0.35)' : 'rgba(99,102,241,0.13)'}`,
                   borderRadius: 8,
                   padding: '5px 8px',
                   display: 'flex',
@@ -405,10 +431,12 @@ function SetEditor({ title, side, set, onChange, lists, moveResults, activeKey, 
                   <Combobox
                     value={moveName}
                     onChange={(v) => setMove(i, v)}
-                    options={lists.moves}
+                    options={moveSections.options}
                     placeholder={`Move ${i + 1}`}
-                    renderOption={(name) => moveOptionNode(name, lists)}
+                    title={info?.desc}
+                    renderOption={(name, active) => moveOptionNode(name, lists, { pct: moveSections.pct.get(name), active })}
                   />
+                  <DescLine text={info?.desc} note={offLearnset ? 'Not in Gen 9 learnset' : undefined} style={{ marginTop: 2 }} />
                 </div>
                 {moveName && (
                   <button

@@ -95,13 +95,65 @@ export function speciesOptionNode(name: string, lists: FormLists): ReactNode {
   );
 }
 
-export function moveOptionNode(name: string, lists: FormLists): ReactNode {
+/** Option-row extras shared by the move and item renderers. */
+export interface OptionExtras {
+  /** Pikalytics usage share for the current species, shown on the right. */
+  pct?: number;
+  /** Whether the row is the highlighted one (the Combobox passes this). */
+  active?: boolean;
+}
+
+export function moveOptionNode(name: string, lists: FormLists, extras: OptionExtras = {}): ReactNode {
   const info = lists.moveInfo[name];
+  const dim = extras.active ? 'rgba(255,255,255,0.72)' : '#6a6a9a';
   return (
-    <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-      {info?.type ? <TypePill type={info.type} small /> : null}
-      <span>{name}</span>
-      {info?.category && <span style={{ marginLeft: 'auto', fontSize: 9, color: '#50508a' }}>{info.category}</span>}
+    <span style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
+      <span style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+        {info?.type ? <TypePill type={info.type} small /> : null}
+        <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</span>
+        {extras.pct ? <span style={{ fontSize: 10, fontWeight: 700, color: extras.active ? 'white' : '#8b8bf0', flexShrink: 0 }}>{extras.pct}%</span> : null}
+        {info?.category && (
+          <span style={{ fontSize: 9, color: dim, flexShrink: 0 }}>
+            {info.category}{info.bp ? ` · ${info.bp}` : ''}
+          </span>
+        )}
+      </span>
+      {info?.desc && (
+        <span style={{ fontSize: 10, color: dim, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontWeight: 500 }}>{info.desc}</span>
+      )}
     </span>
+  );
+}
+
+export function itemOptionNode(name: string, lists: FormLists, extras: OptionExtras = {}): ReactNode {
+  const desc = lists.itemDesc[name];
+  const dim = extras.active ? 'rgba(255,255,255,0.72)' : '#6a6a9a';
+  return (
+    <span style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
+      <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+        <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</span>
+        {extras.pct ? <span style={{ fontSize: 10, fontWeight: 700, color: extras.active ? 'white' : '#8b8bf0', flexShrink: 0 }}>{extras.pct}%</span> : null}
+      </span>
+      {desc && (
+        <span style={{ fontSize: 10, color: dim, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontWeight: 500 }}>{desc}</span>
+      )}
+    </span>
+  );
+}
+
+/**
+ * One muted line under a picker showing what the selected move / item / ability does. Truncates
+ * with an ellipsis; the full text is in the tooltip. Renders nothing when there is no text.
+ */
+export function DescLine({ text, note, style }: { text?: string; note?: string; style?: CSSProperties }) {
+  if (!text && !note) return null;
+  return (
+    <div
+      title={[note, text].filter(Boolean).join(' · ')}
+      style={{ fontSize: 10, color: '#50507a', fontWeight: 500, lineHeight: 1.35, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginTop: 3, ...style }}
+    >
+      {note && <span style={{ color: '#d4a54a', fontWeight: 700 }}>{note}{text ? ' · ' : ''}</span>}
+      {text}
+    </div>
   );
 }

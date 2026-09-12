@@ -2,18 +2,60 @@
 
 import { useEffect, useRef, useState, type ReactNode, type Ref } from 'react';
 
-export type ComboboxOption = string | { header: string };
+/**
+ * A selectable name, or a section header. A header applies to every option after it up to the
+ * next header. `searchOnly` sections stay hidden while browsing and only surface once the user
+ * types something that matches (Showdown's "illegal moves" behaviour).
+ */
+export type ComboboxHeader = { header: string; searchOnly?: boolean; hint?: string };
+export type ComboboxOption = string | ComboboxHeader;
+
+interface Section {
+  header: ComboboxHeader | null;
+  items: string[];
+}
+
+const isHeader = (o: ComboboxOption): o is ComboboxHeader => typeof o === 'object';
+
+function toSections(options: ComboboxOption[]): Section[] {
+  const sections: Section[] = [];
+  let current: Section = { header: null, items: [] };
+  for (const o of options) {
+    if (isHeader(o)) {
+      if (current.header || current.items.length) sections.push(current);
+      current = { header: o, items: [] };
+    } else {
+      current.items.push(o);
+    }
+  }
+  if (current.header || current.items.length) sections.push(current);
+  return sections;
+}
+
+/** Substring match, with prefix / word-start matches ranked ahead of mid-word ones. */
+function rankMatches(items: string[], query: string): string[] {
+  const q = query.toLowerCase();
+  const starts: string[] = [];
+  const words: string[] = [];
+  const rest: string[] = [];
+  for (const it of items) {
+    const lower = it.toLowerCase();
+    const at = lower.indexOf(q);
+    if (at < 0) continue;
+    if (at === 0) starts.push(it);
+    else if (/[\s-]/.test(lower[at - 1])) words.push(it);
+    else rest.push(it);
+  }
+  return [...starts, ...words, ...rest];
+}
 
 /**
- * Searchable select. Supports section headers — pass `{ header: string }` entries in `options`
- * to render non-selectable dividers. Headers are hidden during search mode.
- *
- * Focus/click shows the full option list; typing switches to filter mode.
+ * Searchable select. Focus/click shows the full option list; typing switches to filter mode.
  * Keyboard: ↑/↓ to move through selectable items, Enter to pick, Esc to close.
  *
- * Optional: `renderOption` customizes how each selectable option renders (e.g. type badges);
- * `onAfterSelect` fires after a value is picked (e.g. to advance focus); `inputRef` exposes the
- * underlying input so a parent can focus it.
+ * Optional: `renderOption(name, active)` customizes how each option renders (type badges,
+ * descriptions); `onAfterSelect` fires after a value is picked (e.g. to advance focus);
+ * `inputRef` exposes the underlying input; `title` is the tooltip on the input itself.
  */
 export default function Combobox({
   value,
@@ -23,14 +65,16 @@ export default function Combobox({
   renderOption,
   onAfterSelect,
   inputRef,
+  title,
 }: {
   value: string;
   onChange: (v: string) => void;
   options: ComboboxOption[];
   placeholder?: string;
-  renderOption?: (opt: string) => ReactNode;
+  renderOption?: (opt: string, active: boolean) => ReactNode;
   onAfterSelect?: () => void;
   inputRef?: Ref<HTMLInputElement>;
+  title?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState<string | null>(null); // null = browsing; string = searching
@@ -38,16 +82,12 @@ export default function Combobox({
   const rootRef = useRef<HTMLDivElement>(null);
   const activeRef = useRef<HTMLLIElement>(null);
 
-  const isHeader = (o: ComboboxOption): o is { header: string } => typeof o === 'object';
-
-  // When searching: only matching strings (no headers)
-  // When browsing: full list including headers
-  const displayItems: ComboboxOption[] =
-    query && query.trim()
-      ? options.filter((o): o is string => !isHeader(o) && o.toLowerCase().includes(query.toLowerCase()))
-      : options;
-
-  const navigable = displayItems.filter((o): o is string => !isHeader(o));
+  const searching = !!(query && query.trim());
+  const sections = toSections(options)
+    .filter((s) => searching || !s.header?.searchOnly)
+    .map((s) => (searching ? { ...s, items: rankMatches(s.items, query!.trim()) } : s))
+    .filter((s) => s.items.length > 0);
+  const navigable = sections.flatMap((s) => s.items);
 
   useEffect(() => {
     function onDoc(e: MouseEvent) {
@@ -67,7 +107,8 @@ export default function Combobox({
   function browseAll() {
     setOpen(true);
     setQuery(null);
-    const idx = navigable.indexOf(value);
+    const all = toSections(options).filter((s) => !s.header?.searchOnly).flatMap((s) => s.items);
+    const idx = all.indexOf(value);
     setHighlight(idx >= 0 ? idx : 0);
   }
 
@@ -78,12 +119,15 @@ export default function Combobox({
     onAfterSelect?.();
   }
 
+  let navIdx = 0;
+
   return (
     <div ref={rootRef} className="relative">
       <input
         ref={inputRef}
         value={query !== null ? query : value}
         placeholder={placeholder}
+        title={title || undefined}
         autoComplete="off"
         spellCheck={false}
         onFocus={(e) => {
@@ -129,14 +173,15 @@ export default function Combobox({
           colorScheme: 'dark',
         } as React.CSSProperties}
       />
-      {open && displayItems.length > 0 && (
+      {open && (
         <ul
           style={{
             position: 'absolute',
             zIndex: 30,
             marginTop: 3,
-            maxHeight: 220,
+            maxHeight: 300,
             width: '100%',
+            minWidth: 240,
             overflowY: 'auto',
             borderRadius: 9,
             border: '1px solid rgba(99,102,241,0.22)',
@@ -145,41 +190,47 @@ export default function Combobox({
             boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
           }}
         >
-          {(() => {
-            let navIdx = 0;
-            return displayItems.map((o, i) => {
-              if (isHeader(o)) {
-                return (
-                  <li
-                    key={`h-${i}`}
-                    style={{ padding: '6px 10px 2px', fontSize: 9, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 1, color: '#40406a', userSelect: 'none' }}
-                  >
-                    {o.header}
-                  </li>
-                );
-              }
-              const idx = navIdx++;
-              const active = idx === highlight;
-              return (
-                <li
-                  key={o}
-                  ref={active ? activeRef : undefined}
-                  onMouseDown={(e) => { e.preventDefault(); select(o); }}
-                  onMouseEnter={() => setHighlight(idx)}
-                  style={{
-                    cursor: 'pointer',
-                    padding: '5px 10px',
-                    fontSize: 12,
-                    fontWeight: o === value ? 700 : 500,
-                    background: active ? '#6366f1' : 'transparent',
-                    color: active ? 'white' : '#c0c0e4',
-                  }}
+          {navigable.length === 0 && (
+            <li style={{ padding: '8px 10px', fontSize: 11, color: '#50507a' }}>No matches</li>
+          )}
+          {sections.map((s, si) => (
+            <li key={si} style={{ listStyle: 'none' }}>
+              {s.header && (
+                <div
+                  title={s.header.hint}
+                  style={{ padding: '7px 10px 3px', fontSize: 9, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 1, color: '#50507a', userSelect: 'none', display: 'flex', alignItems: 'center', gap: 6 }}
                 >
-                  {renderOption ? renderOption(o) : o}
-                </li>
-              );
-            });
-          })()}
+                  {s.header.header}
+                  {s.header.hint && <span style={{ fontWeight: 600, textTransform: 'none', letterSpacing: 0, color: '#3a3a5e' }}>· {s.header.hint}</span>}
+                </div>
+              )}
+              <ul style={{ padding: 0, margin: 0 }}>
+                {s.items.map((o) => {
+                  const idx = navIdx++;
+                  const active = idx === highlight;
+                  return (
+                    <li
+                      key={o}
+                      ref={active ? activeRef : undefined}
+                      onMouseDown={(e) => { e.preventDefault(); select(o); }}
+                      onMouseEnter={() => setHighlight(idx)}
+                      style={{
+                        cursor: 'pointer',
+                        padding: '5px 10px',
+                        fontSize: 12,
+                        fontWeight: o === value ? 700 : 500,
+                        background: active ? '#6366f1' : 'transparent',
+                        color: active ? 'white' : '#c0c0e4',
+                        listStyle: 'none',
+                      }}
+                    >
+                      {renderOption ? renderOption(o, active) : o}
+                    </li>
+                  );
+                })}
+              </ul>
+            </li>
+          ))}
         </ul>
       )}
     </div>

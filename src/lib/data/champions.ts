@@ -123,6 +123,7 @@ function movePool(reg: RulesetId): Set<string> {
     const r = RULESETS[reg];
     pool = new Set([...Object.keys(moveMap), ...r.addedMoves.filter((n) => n in overlayMoves || n in moveMap)]);
     pool.delete('(No Move)');
+    pool.delete('Struggle');
     for (const b of r.bannedMoves) pool.delete(b);
     movePoolCache.set(reg, pool);
   }
@@ -281,8 +282,34 @@ export interface FormLists {
   speciesTypes: Record<string, string[]>;
   /** species name → whether it's a Mega forme, for the Mega badge. */
   speciesIsMega: Record<string, boolean>;
-  /** move name → its type + category, for type-colored move badges. */
-  moveInfo: Record<string, { type: string; category: 'Physical' | 'Special' | 'Status' }>;
+  /** move name → type, category, base power, and a one-line description, for the move pickers. */
+  moveInfo: Record<string, { type: string; category: 'Physical' | 'Special' | 'Status'; bp: number; desc: string }>;
+  /** item name → one-line description. */
+  itemDesc: Record<string, string>;
+  /** ability name → one-line description. */
+  abilityDesc: Record<string, string>;
+}
+
+/**
+ * One-line effect text for a move / item / ability, from @pkmn/dex. This is MAINLINE (Gen 9)
+ * wording: Champions tweaks a handful of effects (see vendor/smogon-calc/mechanics/champions.js),
+ * so treat it as a reminder of what the thing does, not as a rules citation. Empty when the dex
+ * has never heard of the name (Champions-only content).
+ */
+const descCache = new Map<string, string>();
+function dexText(kind: 'moves' | 'items' | 'abilities', name: string): string {
+  const key = `${kind}:${name}`;
+  const hit = descCache.get(key);
+  if (hit !== undefined) return hit;
+  let text = '';
+  try {
+    const e = Dex[kind].get(name) as { exists?: boolean; shortDesc?: string; desc?: string };
+    if (e?.exists) text = e.shortDesc || e.desc || '';
+  } catch {
+    /* unknown to @pkmn/dex */
+  }
+  descCache.set(key, text);
+  return text;
 }
 /**
  * Legal abilities for a species. @smogon/calc only stores the slot-0 ability per species (so Incineroar
@@ -320,21 +347,25 @@ export function formLists(reg: RulesetId = DEFAULT_RULESET): FormLists {
   const moveInfo: FormLists['moveInfo'] = {};
   for (const m of moves) {
     const mv = getMove(m);
-    moveInfo[m] = { type: mv?.type ?? '', category: mv?.category ?? 'Status' };
+    moveInfo[m] = { type: mv?.type ?? '', category: mv?.category ?? 'Status', bp: mv?.basePower ?? 0, desc: dexText('moves', m) };
   }
+  const items = listItems(reg);
+  const abilities = listAbilities();
 
   return {
     regulation: reg,
     species,
     moves,
-    items: listItems(reg),
-    abilities: listAbilities(),
+    items,
+    abilities,
     natures: listNatures(),
     speciesAbilities,
     speciesStats,
     speciesTypes,
     speciesIsMega,
     moveInfo,
+    itemDesc: Object.fromEntries(items.map((i) => [i, dexText('items', i)])),
+    abilityDesc: Object.fromEntries(abilities.map((a) => [a, dexText('abilities', a)])),
   };
 }
 

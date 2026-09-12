@@ -1,12 +1,20 @@
 # Ground Truth: Pokémon Champions Regulation M-B
 
-This document is the authoritative reference for all Regulation M-B specific rules, mechanics, and metagame context. It is used as Layer 3 regulation context in the VGC Champions Tool. All VGC general mechanics in the VGC Mechanics ground truth document apply in full unless explicitly overridden here.
+This document is the authoritative reference for all Regulation M-B specific rules, mechanics, and metagame context. All VGC general mechanics in the VGC Mechanics ground truth document apply in full unless explicitly overridden here.
+
+> **Status (2026-09-12):** Regulation M-B ended on 2026-09-08. Regulation M-C (2026-09-09 to
+> 2026-12-02) is the live ranked format. This document is still the baseline: the vendored
+> Champions dex in the app is the M-B pool, and every later regulation is a delta on top of it
+> (`src/lib/rulesets/reg-m-c.ts` lists the M-C additions with its source). The qualitative
+> context the model is given (`src/lib/data/meta.ts`) is traceable to this file; usage figures
+> are never taken from here, they come from live Pikalytics data. Mentions of "current" below
+> describe M-B during its season.
 
 ---
 
 ## 1. Regulation M-B Overview
 
-Regulation M-B is the current competitive format for the Pokémon Champions circuit. It represents a structural shift away from passive stall and high-variance status reliance ("hax") toward a paradigm of Active Positioning and tactical execution.
+Regulation M-B was the Pokémon Champions ranked format through 2026-09-08. It represents a structural shift away from passive stall and high-variance status reliance ("hax") toward a paradigm of Active Positioning and tactical execution.
 
 **Defining mechanic: Dynamic Speed.** Unlike legacy formats where turn order was fixed at the start of the turn, Champions calculates turn order immediately mid-turn. If a Pokémon's speed is altered via Tailwind, Icy Wind, or an ability activation (e.g., Swift Swim), speed brackets update instantly.
 

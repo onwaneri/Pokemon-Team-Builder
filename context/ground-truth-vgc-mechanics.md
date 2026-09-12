@@ -1,6 +1,6 @@
 # Ground Truth: Pokémon VGC Doubles Mechanics
 
-This document is the authoritative reference for all VGC doubles battle mechanics as they apply to the Champions era. It is used as Layer 1 immutable context in the VGC Champions Tool. Nothing in this document is inferred — it is ground truth that the calc engine and Claude both treat as fixed law.
+This document is the authoritative reference for all VGC doubles battle mechanics as they apply to the Champions era. In Forge (the VGC Champions Tool) the calc engine enforces these rules and the model is given the qualitative summary in `src/lib/data/meta.ts`, which must stay traceable to this file. Nothing in this document is inferred — it is ground truth that the engine and the model both treat as fixed law.
 
 ---
 

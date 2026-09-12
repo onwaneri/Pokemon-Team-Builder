@@ -1,12 +1,23 @@
-# VGC Champions Tool — Full Spec
+# Forge — Architecture and Product Spec (as built)
+
+Last reconciled with the code: 2026-09-12. When the code changes, this file changes in the same
+commit (see `CLAUDE.md`).
 
 ## Overview
 
-A personal AI-powered competitive Pokémon tool for Champions Series play. Built for one user. The tool combines a deterministic damage calculation engine with an AI layer that interprets natural language queries, proposes EV changes, and reasons about team-level synergy. Every numeric output is computed by code — Claude never estimates a number.
+Forge is a public team builder and damage calculator for Pokémon Champions VGC, deployed on
+Vercel at vgcforge.com with Firebase as the backend. It combines a deterministic Champions calc engine with an AI assistant that
+interprets natural-language requests, edits the screen, proposes set changes, builds teams, and
+reasons about synergy. Every numeric output is computed by code. The model never estimates a
+number; it calls engine tools and explains the results.
 
-Ground truth for all mechanics lives in two companion documents:
-- `ground-truth-vgc-mechanics.md` — universal VGC doubles rules (Layer 1)
-- `ground-truth-reg-mb.md` — Regulation M-B specific rules and metagame (Layer 3)
+The original design was a single-user tool on the Claude API with a Firestore data warehouse.
+What shipped is multi-user, provider-neutral, and keeps all dex and usage data outside Firestore.
+The section at the end lists what was dropped or deferred.
+
+Ground truth for mechanics lives in two companion documents:
+- `ground-truth-vgc-mechanics.md`: universal Champions-era doubles rules.
+- `ground-truth-reg-mb.md`: Regulation M-B rules and metagame, the baseline the rulesets extend.
 
 ---
 
@@ -14,523 +25,253 @@ Ground truth for all mechanics lives in two companion documents:
 
 | Layer | Technology |
 |---|---|
-| Frontend | React (Next.js App Router) |
-| Backend | Next.js API routes (serverless) |
-| Database | Firebase Firestore |
-| Deployment | Vercel |
-| Auth | Firebase Auth (Google OAuth) |
-| Calc engine | `@smogon/damage-calc` + `@pkmn/data` |
-| AI layer | Claude API (claude-sonnet-4-6) |
+| Frontend | Next.js 16 App Router, React 19, Tailwind 4, TypeScript |
+| Backend | Next.js route handlers, Node runtime, serverless |
+| Calc engine | Vendored `@smogon/calc` master build, Champions as generation 0 (`vendor/smogon-calc`) |
+| Dex data | The vendored calc dataset; Reg M-C additions and learnsets grafted from `@pkmn/dex` |
+| Usage data | Pikalytics AI endpoint, fetched live, cached in-process for one hour |
+| Auth | Firebase Auth: Google popup and email/password. Phone sign-in was removed. |
+| Database | Firestore, project `pokemon-vgc-tool` |
+| LLM | Provider-neutral client (`src/lib/ai/llm.ts`) over OpenAI, Gemini, Anthropic, OpenRouter |
+| Hosting | Vercel at vgcforge.com. Route handlers run as Vercel serverless functions, which is why every request fits a single model call. Firebase (auth, Firestore) is the backend; `pokemon-vgc-tool.web.app` / `.firebaseapp.com` are authorized auth domains only |
 
 ---
 
-## Regulations at Launch
+## Regulations
 
-**Champions Series Regulation M-B only.**
+Two regulations are registered in `src/lib/rulesets/index.ts`. The default is Reg M-B.
 
-```
-id: reg-m-b
-gen: 9
-team_size: 6 (bring 4)
-restricted_slots: 2
-mechanic_tera: false
-mechanic_megas: true
-mechanic_zmoves: false
-mechanic_dynamax: false
-banned_items: [to be confirmed from official Play Pokemon doc]
-data_version: pinned @pkmn/data version at reg launch
-```
+| Id | Label | Window | Usage format |
+|---|---|---|---|
+| `reg-m-b` | Regulation M-B | through 2026-09-08 | `gen9championsvgc2026regmb` |
+| `reg-m-c` | Regulation M-C | 2026-09-09 to 2026-12-02 | `gen9championsvgc2026regmc`, falling back to the M-B format until Pikalytics publishes M-C |
 
-No Terastallization. Reject any query involving Tera types before running any calc.
+The vendored gen-0 dex *is* the Reg M-B pool, so the M-B delta is empty. Reg M-C adds 36 usable
+Pokémon (31 dex names), 12 held items plus the Mega Stones the new Megas need, and the signature
+moves the gen-0 move table lacks. Species and moves not in the vendored data are grafted from
+`@pkmn/dex` into the same shape so the legality gate and engine treat them like native entries.
 
-Mega Evolution is enabled. Mega stats are stored in a custom overlay collection in Firestore for any Mega not natively in Gen 9 @pkmn/data.
+Format facts common to both: Level 50, bring 4 of 6, Mega Evolution on, no Terastallization,
+no Z-moves, no Dynamax. Stat Points replace EVs and IVs (0–32 per stat, 66 total; IVs fixed at
+31). Tera input to the engine is rejected before any calc runs.
 
----
+The header selector switches regulation instantly: `page.tsx` computes form lists for every
+ruleset on the server once. Switching does not touch the open team; saved teams carry the
+`regulation` they were last saved under. `/api/ruleset` reports whether usage numbers are on
+fallback data so the header badge can say so.
 
-## Architecture: Three Layer Model
-
-Every Claude query is assembled from three layers of context. Layer 1 is a static constant baked in at build time. Layer 2 is loaded from Firestore at session start. Layer 3 is injected per session based on the active regulation and loaded team.
-
-```
-Layer 1: Immutable Battle Engine (ground-truth-vgc-mechanics.md)
-         type chart, damage formula, stat calc, priority brackets, core mechanics
-                    ↓
-Layer 2: Gen 9 Data Snapshot
-         species, moves, abilities, items — pinned @pkmn/data version
-                    ↓
-Layer 3: Regulation + Team Context (ground-truth-reg-mb.md)
-         legal dex, banned items, mechanic toggles, PP values,
-         cached usage snapshots, loaded team + inferred benchmarks
-```
-
-### Layer 1 — Immutable (never fetched, never changes)
-
-Stored as a TypeScript constant and injected into every Claude system prompt. Full content is defined in `ground-truth-vgc-mechanics.md`. Summary of what is included:
-
-- Full 18x18 type effectiveness matrix
-- Gen 9 damage formula with all modifiers
-- Stat calculation formula (HP and non-HP, Level 50)
-- Priority bracket table with Champions era values
-- Doubles-specific rules: spread move 75% penalty, targeting vs. hitting distinction, lone survivor exception
-- Screen damage reduction: 33% in doubles (not 50%)
-- Critical hit mechanics: 1.5x, ignores negative attacker stages and positive defender stages
-- Speed tie resolution: random 50/50 — Claude must always flag these, never assume
-- Dynamic Speed: speed order recalculated mid-turn after any modification
-- Action sequence: switch → abilities → moves
-- Tailwind: doubles Speed for 4 turns
-- Trick Room: reverses speed order for 5 turns, -7 priority
-- Burn: halves physical damage
-- Intimidate: lowers adjacent opponents' Attack one stage on switch-in
-- Redirection: Follow Me and Rage Powder (+2) force single-target moves to the user
-- Type redirection: Lightningrod (Electric), Storm Drain (Water)
-- Status caps: Paralysis 12.5% full proc, Sleep 1-2 turns (33% wake turn 2), Freeze max 3 turns (25% thaw/turn)
-- Fixed PP table: 5→8, 10→12, 15→24, >15→20
-- Secondary effects after user fainting: Knock Off, Rapid Spin, Mortal Spin, Ceaseless Edge all trigger
-- Screens in doubles: 33% reduction (not 50%); Light Clay extends to 8 turns
-- Fake Out: cannot be selected after the user's first turn on the field
-- Sucker Punch: fails if target uses non-damaging move or moves first in bracket
-- Terrain effects table (Electric, Grassy, Psychic, Misty)
-- Weather effects table (Sun, Rain, Sand, Snow)
-
-**Claude instruction baked into Layer 1:**
-> Never estimate or approximate any numerical output. Always call the provided calc functions. Flag speed ties explicitly. Validate mon/move/item legality against the active regulation before every calc. No Tera in Reg M-B — reject before running.
-
-### Layer 2 — Gen 9 Data Snapshot (loaded at session start)
-
-Sourced from `@pkmn/data`, pinned to a specific version per regulation. Stored in Firestore and never auto-updated mid-regulation. Accessed via tool calls.
-
-### Layer 3 — Regulation + Team Context (injected per session)
-
-Built dynamically from Firestore at session start. Full content is defined in `ground-truth-reg-mb.md`. Includes:
-
-- Active regulation config (Reg M-B values)
-- Legal dex + banned items
-- Mechanic toggles (Mega: on, Tera: off, Z: off, Dynamax: off)
-- Reg M-B specific PP values (including 8 PP cap on Protect variants and Nihil Light)
-- Reg M-B specific move data (BP changes, accuracy changes, secondary effect rates)
-- Slicing mechanic expansion (Dragon Claw, Shadow Claw, Night Slash, Dire Claw)
-- Ability modifications (Unseen Fist 25%, Healer 50%, Unnerve bug)
-- Status condition nerfs (Paralysis 12.5%, Sleep 1-2 turns, Freeze max 3 turns)
-- Dominant Mega profiles: Mega Dragonite, Mega Glimmora, Mega Aerodactyl, Archaludon
-- Fake Out top users and combinations
-- Latest cached usage snapshot (Pikalytics)
-- Loaded team: all 6 mons with sets, computed stats, roles, and benchmarks
-- Active chat history for the current team session
+**Adding a regulation:** one file satisfying `Ruleset` in `src/lib/rulesets/`, registered in
+`index.ts`, plus the id added to the `regulation` check in `firestore.rules`. Nothing else in the
+codebase should need to know the regulation's specifics.
 
 ---
 
-## Firestore Data Model
+## Model context: three layers
 
-Firestore is NoSQL. Data is organized as collections of documents. Related data is denormalized — documents embed what they need rather than joining across collections.
+Every assistant request is assembled from three layers. None of them is loaded from Firestore.
 
-### Collections
+1. **Mechanics (static).** The engine itself enforces Champions mechanics; the qualitative
+   baseline the model is told lives in `src/lib/data/meta.ts` and must stay traceable to the two
+   ground-truth documents. No usage claims are allowed in static text.
+2. **Dex data (tools).** Species, moves, items, abilities, and learnsets are answered by tools
+   over the vendored dataset (`src/lib/data/champions.ts`, `learnsets.ts`).
+3. **Regulation, usage, and screen (per request).** The active ruleset's notes, live Pikalytics
+   usage via `lookupUsage`, and a serialized snapshot of what is on screen (team, calc state,
+   speed-tier state) so the model edits what the user is actually looking at.
 
-```
-/regulations/{regulationId}
-  id: string
-  name: string
-  gen: number
-  restrictedSlots: number
-  mechanicTera: boolean
-  mechanicMegas: boolean
-  mechanicZmoves: boolean
-  mechanicDynamax: boolean
-  bannedItems: string[]
-  dataVersion: string              // pinned @pkmn/data version
-  notes: string
-
-/regulations/{regulationId}/legalDex/{speciesId}
-  speciesId: string
-  isRestricted: boolean
-
-/species/{speciesId}
-  id: string
-  gen: number
-  name: string
-  type1: string
-  type2: string | null
-  hp: number
-  atk: number
-  def: number
-  spa: number
-  spd: number
-  spe: number
-  weightKg: number
-  abilities: { 0: string, 1?: string, H?: string }
-  dataVersion: string
-
-/species/{speciesId}/megaOverlay/{megaId}
-  id: string                       // e.g. 'charizard-mega-x'
-  baseSpeciesId: string
-  regulationId: string             // which reg this mega is legal in
-  type1: string
-  type2: string | null
-  hp: number
-  atk: number
-  def: number
-  spa: number
-  spd: number
-  spe: number
-  ability: string
-  notes: string                    // source of stat data
-
-/moves/{moveId}
-  id: string
-  gen: number
-  name: string
-  type: string
-  category: string                 // 'Physical' | 'Special' | 'Status'
-  basePower: number
-  accuracy: number
-  priority: number
-  target: string                   // 'normal' | 'allAdjacentFoes' | 'self' | ...
-  flags: object                    // { contact, protect, sound, slicing, ... }
-  selfBoost: object | null         // e.g. { def: -1, spd: -1 } for Close Combat
-  dataVersion: string
-
-/abilities/{abilityId}
-  id: string
-  gen: number
-  name: string
-  desc: string
-  shortDesc: string
-  dataVersion: string
-
-/items/{itemId}
-  id: string
-  gen: number
-  name: string
-  desc: string
-  dataVersion: string
-
-/usageSnapshots/{snapshotId}
-  regulationId: string
-  source: string                   // 'pikalytics' | 'limitless' | 'smogon' | 'home'
-  snapshotDate: timestamp
-  speciesId: string
-  usagePct: number
-  commonMoves: Array<{ move: string, usage: number }>
-  commonItems: Array<{ item: string, usage: number }>
-  commonAbilities: Array<{ ability: string, usage: number }>
-  commonSpreads: Array<{
-    nature: string,
-    evs: { hp, atk, def, spa, spd, spe },
-    usage: number,
-    computedStats: { hp, atk, def, spa, spd, spe }  // pre-computed final stats
-  }>
-
-/tournamentSets/{setId}
-  regulationId: string
-  eventName: string
-  eventDate: timestamp
-  playerName: string
-  placement: number
-  team: object                     // full structured team
-
-/users/{userId}
-  email: string
-  createdAt: timestamp
-
-/users/{userId}/teams/{teamId}
-  id: string
-  regulationId: string
-  name: string
-  createdAt: timestamp
-  updatedAt: timestamp
-
-/users/{userId}/teams/{teamId}/members/{slot}
-  slot: number                     // 1-6
-  speciesId: string
-  nickname: string | null
-  itemId: string
-  abilityId: string
-  nature: string
-  moves: string[]                  // [moveId, moveId, moveId, moveId]
-  evs: { hp, atk, def, spa, spd, spe }  // must sum <= 510, each <= 252
-  ivs: { hp, atk, def, spa, spd, spe }
-  computedStats: { hp, atk, def, spa, spd, spe }   // pre-computed
-  inferredRole: string             // Claude-generated natural language role
-  benchmarks: Array<{
-    id: string,
-    description: string,           // always natural language
-    status: 'passing' | 'failing' | 'needs_review',
-    lastChecked: timestamp
-  }>
-  benchmarkLastEvaluated: timestamp
-
-/users/{userId}/teams/{teamId}/chatSessions/{sessionId}
-  createdAt: timestamp
-  updatedAt: timestamp
-
-/users/{userId}/teams/{teamId}/chatSessions/{sessionId}/messages/{messageId}
-  role: 'user' | 'assistant'
-  content: string
-  attachedDiff: object | null      // proposed changes if any
-  diffStatus: 'pending' | 'accepted' | 'rejected' | null
-  createdAt: timestamp
-```
+Standing instructions to the model: never estimate numbers, call the engine, flag speed ties,
+validate legality before proposing anything, respect the 66-SP budget, and account for existing
+benchmarks before changing a spread.
 
 ---
 
-## Team Import / Export
+## AI access
 
-**Import:** User pastes a Showdown export string. `@pkmn/sets` parses it into structured data. On import:
+Visitors choose a provider; the server chooses the model per job.
 
-1. Validate all mons/moves/items against active regulation legal dex
-2. Reject any mon, move, or item not legal in Reg M-B before proceeding
-3. Compute final stats for each mon using stat formula
-4. Claude infers role and benchmarks for all 6 mons simultaneously with full team context
-5. Benchmarks are verified against current Pikalytics usage data (common spreads)
-6. Benchmark cards are presented non-blocking — user can review, edit, or dismiss
-
-**Export:** App generates a valid Showdown paste from current team state. One button copy.
-
-**Two-way workflow:**
-```
-Build in Showdown → export paste → import to app (one click parse)
-Build in app → export paste → import to Showdown (one click copy)
-```
-
-True background sync with Showdown is not possible (no official API). Import/export covers the workflow.
-
----
-
-## UI Layout
-
-### Regulation Selector
-
-Persistent dropdown at the top of the app. Currently only Reg M-B. Switching regulation reloads Layer 3 context for the entire session. Claude never infers the regulation — it is always explicitly injected.
-
-### Split Pane Interface
-
-```
-┌─────────────────────┬──────────────────────────────┐
-│   CHAT              │   ARTIFACT PANEL              │
-│                     │                               │
-│  [message history]  │  [active view]                │
-│                     │                               │
-│  [input box]        │                               │
-└─────────────────────┴──────────────────────────────┘
-```
-
-### Artifact Panel Views
-
-Claude switches the active view automatically based on the query. User can also switch manually.
-
-- **Team view (default):** 6 mon cards with set, computed stats, role, benchmark status indicators
-- **Damage calc view:** Two mon panels + field panel in the middle, move list with damage ranges and full 16 rolls. Simplified UI by default; full options (weather, terrain, screens, boosts, etc.) behind "Advanced" toggle. Inspired by the Smogon damage calculator layout but with a simplified default state.
-- **Speed tier view:** Full speed tier chart for loaded team + top meta mons, with Tailwind and Trick Room toggles
-- **Threat table view:** Top Reg M-B usage mons ranked by threat level to the loaded team
-- **Diff view:** Proposed changes to a mon's EVs, moves, or benchmarks with accept/reject controls
-
-### Diff / Proposal Flow
-
-When Claude proposes a change to a mon:
-
-1. Diff view opens in the artifact panel
-2. Shows current vs. proposed values for every changed stat
-3. Shows EV budget delta (must remain ≤ 510 total)
-4. Shows which benchmarks are affected and their new pass/fail status
-5. Shows full reasoning: what is being raised, what is being cut, why, and what other benchmarks are or are not impacted
-6. User accepts or rejects. Rejected diffs are logged in chat history.
-
-**Example reasoning format:**
-> "Raising Speed by 12 points (28 EVs) to outspeed Whimsicott in Tailwind. Keeping SpAtk at 252 — Flamethrower still OHKOs standard Landorus-T in Sun. Taking EVs from HP: drops from 89.3% to 85.1% survival vs. Moonblast from standard Flutter Mane, which is not a current benchmark."
-
-Claude must always account for all existing benchmarks before proposing any change. A change that silently breaks a passing benchmark is never acceptable — it must be flagged in the diff.
+- **Bring your own key.** `POST /api/ai-key` validates the key with the provider and seals it
+  into an httpOnly, `sameSite=strict` cookie scoped to `/api` (AES-256-GCM under
+  `AI_COOKIE_SECRET`, 90 days). It is never stored server-side and JavaScript never reads it.
+  No quota applies.
+- **Free tier.** The owner's key from the environment, chosen in the order OpenAI, Gemini,
+  Anthropic, OpenRouter unless `FREE_TIER_PROVIDER` forces one. Requires a signed-in Firebase
+  account (ID token verified server-side against Google's certificates, no admin SDK).
+  Capped at `FREE_CHAT_LIMIT` requests per account (default 15). The counter lives in the
+  Firestore `aiQuota` collection through the REST API when `FIREBASE_ADMIN_*` is set, otherwise
+  in process memory. The limit and count are never sent to the browser. A failed upstream call
+  refunds the request. Anonymous visitors get a signed device cookie for identity but are asked
+  to sign in or connect a key before using the free tier.
+- **Interactive vs ambient.** Chat, team builder, SP optimizer, and benchmark parsing are
+  interactive: own key, else free tier, else denied. Compare chips, team blurbs, team names,
+  role inference, and benchmark re-parsing on evaluation are ambient: own key only, with a
+  deterministic fallback (top of the usage rankings, blank blurb, blank role).
+- **Model tiers.** Each provider maps `fast` (short structured picks) and `smart` (tool loops)
+  to a model in `PROVIDERS`; `AI_MODEL_<PROVIDER>_<TIER>` overrides one. Tool schemas are
+  written once in Gemini's `Type.OBJECT` form and converted for the other providers.
+  OpenRouter requests carry Forge / vgcforge.com attribution headers.
 
 ---
 
-## Benchmark System
+## Engine and data
 
-### Inference on Import
-
-Claude infers benchmarks from the full team context simultaneously, not per-mon in isolation. It considers:
-
-- Moveset, item, nature, and EV spread of the imported mon
-- The roles of the other 5 mons (what do they cover, what does this mon need to cover)
-- Current Pikalytics usage data for Reg M-B (what threats are common enough to benchmark against)
-- Reg M-B specific metagame context (Mega profiles, dominant archetypes, Fake Out patterns)
-
-Benchmarks are always stored and displayed as natural language strings:
-```
-"OHKOs standard Mega Dragonite with Ice Beam before Multiscale check"
-"Outspeeds max speed Whimsicott in Tailwind"
-"Survives Adaptability Sludge Bomb from Mega Glimmora"
-"Moves before Weavile's Fake Out under Trick Room"
-```
-
-### Benchmark Cards
-
-Each mon has a benchmark card in the team view showing:
-- Inferred role (editable in natural language)
-- List of benchmarks with pass/fail status badges
-- Last evaluated timestamp
-
-### Editing Benchmarks
-
-- Click any benchmark to edit it inline in natural language
-- Say in chat "change Charizard's speed benchmark to outspeed Mega Aerodactyl instead" — Claude updates the benchmark and reruns the calc
-- Say "Charizard is now my Trick Room setter, not my sun sweeper" — Claude re-infers all benchmarks for Charizard and flags which other team members' benchmarks are now in conflict
-
-### Team Synergy Re-evaluation
-
-When any mon's role changes, Claude re-evaluates all 6 mons' benchmarks in the context of the new team configuration and surfaces conflicts proactively. Synergy is the unit of analysis, not individual mons.
+- `src/lib/calc/engine.ts` is the only source of numbers: `calcDamage` (16 rolls, min/max,
+  percent of max HP, KO chance, description, caveat flags for speed ties and Multiscale),
+  `compareSpeed`, and `computeStats`. Champions SP is passed through the calc's `evs` field.
+- `src/lib/calc/sp.ts` documents the stat formula (HP = base + SP + 75; other =
+  floor(nature × (base + SP + 20))) and clamps every SP input to the budget.
+- `src/lib/data/usage.ts` fetches `https://www.pikalytics.com/ai/pokedex/{format}/{pokemon}`
+  as markdown and parses it. A fetched page that parses to nothing is treated as parser drift
+  and returns null rather than empty data. Unpublished formats are re-probed every five
+  minutes. Upstream calls time out at ten seconds.
+- `src/lib/data/learnsets.ts` is a Gen 9 graft (Champions publishes no learnset table). Verdicts
+  are three-state; a move is rejected only with positive evidence, so Champions-only signatures
+  are never blocked.
+- `src/lib/ai/tools.ts` holds the shared tool declarations (`calcDamage`, `lookupUsage`,
+  `compareSpeed`) and the legality gate every AI entry point uses. A set that is illegal for
+  chat is illegal for the team builder and compare sets too.
 
 ---
 
-## Usage Data Pipeline
+## Persistence
 
-### Sources
+Firestore holds exactly two things. Everything else (dex, usage, chat history) is computed or
+fetched per request.
 
-| Source | Use Case | Cadence |
+```
+users/{uid}/teams/{teamId}     SavedTeam + ownerUid. Owner-only read/write.
+aiQuota/{identityHash}         { used: int }. Server-only via REST; denied to clients.
+```
+
+`SavedTeam` (`src/lib/library/types.ts`): `id`, `name`, `team` (six slots, null or `TeamMon`),
+`blurb`, `blurbHash`, `createdAt`, `updatedAt` (Unix ms), optional `regulation`. `TeamMon`
+carries `slot`, `nickname`, `species`, `item`, `ability`, `nature`, `sp`, `moves`,
+`computedStats`, `role`, `benchmarks`.
+
+`firestore.rules` pins the schema shape and size caps but validates nested values only
+shallowly: Firestore's per-request expression budget is exceeded by a field-by-field check of
+six Pokémon. Only the owner can write, so value-level checks of the owner's own data are left
+to the client. Keep `isValidMon` cheap.
+
+Guests use a localStorage adapter with the same async `TeamStore` interface. Chat history is
+kept in React state for the session and is not persisted.
+
+---
+
+## UI
+
+Root client component: `src/components/Workspace.tsx`. Two modes.
+
+- **Library** (initial): card grid of saved teams with inline rename, sprites, AI blurb,
+  Import, New Team, Export, Duplicate, Delete. The Showdown panel lives here: link a username
+  (never a password) to see Champions ratings, the five most recent replays in the active
+  format, and public teams with an Import button each, or import from a `psim.us/t/…` or
+  `teams.pokemonshowdown.com/view/…` link.
+- **Editor**: tab bar over three views plus the chat panel. Leaving with unsaved changes opens
+  a save prompt. Save, Export, and Import live in the toolbar's overflow menu; the team name
+  is edited inline, and the first save suggests names when the name is a placeholder.
+
+Views (`WorkspaceView`): `team`, `calc`, `speed`.
+
+- **Team.** Six slot editors with learnset-filtered move pickers, move and item descriptions,
+  popular-set chips from Pikalytics, the shared `SpEditor` (slider plus number per stat, Max
+  button, live computed stat, remaining budget), a role line, and the benchmark list. The team
+  builder panel shows while slots are open.
+- **Damage calc.** Two set editors and a field panel; move list with all 16 rolls. Compare
+  chips suggest opponents relevant to the focus Pokémon.
+- **Speed tiers.** The team against relevant benchmarks with Tailwind and Trick Room toggles.
+  Compare chips pick the speed benchmarks around the focus Pokémon's bracket.
+
+**Chat** is the single assistant surface. Every message goes out with the current screen state.
+Direct tools (`navigateTo`, `updateCalc`, `updateSpeedTier`, `applyTeamEdit`, `setTeamSlot`,
+`removeTeamSlot`, `reorderTeam`, `renameTeam`) apply immediately. Proposal tools
+(`proposeTeamEdit`, `proposeBenchmark`, `proposeSubstitution`) render accept/reject cards
+attached to the message. Every proposed set passes the legality gate before it reaches the UI.
+
+---
+
+## Benchmarks
+
+Benchmarks are natural-language strings per Pokémon, added manually or through chat. They are
+no longer auto-generated on import (that was dropped; roles are still inferred on import when a
+key is connected).
+
+1. `POST /api/benchmark/parse` turns the description into a structured `check` (interactive).
+2. `POST /api/eval` runs every check through the engine and returns pass, fail, or needs review
+   with the engine's own detail line. Benchmarks that still lack a check are re-parsed only on
+   a connected key.
+3. `POST /api/optimize-sp` asks the model to search for the minimum SP spread that passes the
+   Pokémon's benchmarks using `calcDamage`; the engine re-verifies the returned spread and the
+   budget before accepting, and rejections go back into the loop.
+
+---
+
+## Team builder
+
+`POST /api/build-team` runs one model round per request. The first call charges one free
+request (or uses the visitor's key), prepares signed `BuildState`, and runs round one;
+continuations pass the state back and are never re-charged. The model researches with the
+shared tools and finishes by calling `submitTeam`. Slots the user already filled are locked
+server-side. A build is typically 5–15 rounds, hard-capped at 40.
+
+---
+
+## Import and export
+
+- **Import** (`POST /api/import`, `src/lib/showdown/import.ts`): parses a Showdown paste.
+  Values labelled EVs or above 32 are converted with SP = round(EV / 8); IVs are ignored.
+  Every member is validated against the active ruleset and learnsets, stats are computed, and
+  roles are inferred when a key is connected.
+- **Export** (`src/lib/showdown/export.ts`): one-click Showdown paste from the current team.
+- **Showdown API** (`src/lib/showdown/psApi.ts`, server-only for CORS): profile ratings, replay
+  search, public team search, single team fetch, and PokePaste creation. No Showdown password is
+  ever requested or stored.
+
+---
+
+## API routes
+
+All routes run on the Node runtime because the calc dataset is 2.3 MB of CommonJS.
+
+| Route | Purpose | AI |
 |---|---|---|
-| Pikalytics | Primary — VGC tournament usage, common spreads with computed stats | Weekly during season |
-| Limitless | Real tournament team sheets, winning builds | Post-event (1-2x/month) |
-| `@pkmn/smogon` | Secondary usage stats, sanity check | Monthly |
-| Pokemon Home | Official Nintendo usage, sanity check | Monthly |
-
-### Caching Strategy
-
-- Usage snapshots stored in Firestore per regulation + source + date
-- App always queries the latest snapshot for the active regulation — never fetches live at query time
-- All common spreads have pre-computed final stats stored alongside the EV/nature data so Claude references numbers directly
-- Historical regulation snapshots are frozen when a new regulation becomes active
-
-### Pikalytics Update Notifications
-
-When a new Pikalytics snapshot is ingested:
-1. Re-run all benchmark calcs for all saved teams in Reg M-B against the new common spreads
-2. Any benchmark that changes status (passing → failing or failing → passing) is flagged
-3. Next time the user opens that team, a notification appears: "Pikalytics updated — 2 benchmarks need review"
-4. Affected benchmarks are highlighted in the benchmark card, showing old vs. new standard spread
+| `POST /api/chat` | Assistant turn with screen context | interactive |
+| `POST /api/build-team` | One team-builder round | interactive (first round charged) |
+| `POST /api/optimize-sp` | Minimum SP spread for benchmarks | interactive |
+| `POST /api/benchmark/parse` | NL benchmark to structured check | interactive |
+| `POST /api/eval` | Evaluate benchmarks with the engine | ambient re-parse only |
+| `POST /api/compare-set` | Opponent chips for calc and speed views | ambient, rankings fallback |
+| `POST /api/team-blurb` | 2–3 sentence team overview | ambient, empty fallback |
+| `POST /api/import` | Parse and validate a paste, infer roles | ambient roles |
+| `POST /api/calc` | Damage calc for the UI | none |
+| `GET /api/learnset` | Learnable vs unverified moves for a species | none |
+| `GET /api/usage` | Pikalytics usage for a species | none |
+| `GET /api/ruleset` | Active ruleset and usage fallback status | none |
+| `GET/POST/DELETE /api/ai-key` | Inspect, connect, or remove a key | none |
+| `GET /api/showdown/profile`, `/replays`, `/teams`, `/team`; `POST /api/showdown/share` | Showdown integration | none |
 
 ---
 
-## Claude Context Assembly (per query)
+## Environment
 
-```typescript
-async function buildQueryContext(userId: string, teamId: string, regulationId: string) {
-
-  // Layer 1 — static constant, never fetched
-  const layer1 = IMMUTABLE_MECHANICS_PROMPT; // content of ground-truth-vgc-mechanics.md
-
-  // Layer 2 — loaded from Firestore, stable within gen
-  const [species, moves, abilities, items] = await Promise.all([
-    db.collection('species').where('gen', '==', 9).get(),
-    db.collection('moves').where('gen', '==', 9).get(),
-    db.collection('abilities').where('gen', '==', 9).get(),
-    db.collection('items').where('gen', '==', 9).get(),
-  ]);
-
-  // Layer 3 — regulation + team
-  const regulation = await db.collection('regulations').doc(regulationId).get();
-  const legalDex = await db.collection(`regulations/${regulationId}/legalDex`).get();
-  const usageSnapshot = await db.collection('usageSnapshots')
-    .where('regulationId', '==', regulationId)
-    .where('source', '==', 'pikalytics')
-    .orderBy('snapshotDate', 'desc')
-    .limit(30)
-    .get();
-  const teamMembers = await db
-    .collection(`users/${userId}/teams/${teamId}/members`)
-    .orderBy('slot')
-    .get();
-  const chatHistory = await db
-    .collection(`users/${userId}/teams/${teamId}/chatSessions`)
-    .orderBy('updatedAt', 'desc')
-    .limit(1)
-    .get();
-
-  return buildSystemPrompt(layer1, regulation, legalDex, usageSnapshot, teamMembers, chatHistory);
-}
-```
-
-### Assembled System Prompt Structure
-
-```
-[LAYER 1 — IMMUTABLE VGC MECHANICS]
-Full type chart, damage formula, stat calc, priority brackets,
-spread move rules, screen rules, status caps, PP table,
-all Champions era universal rules.
-Instruction: never estimate numbers, always call calc functions,
-flag speed ties, validate legality before every calc, reject Tera queries.
-
-[LAYER 2 — GEN 9 DATA]
-Available via tool calls: species lookup, move lookup, ability lookup, item lookup.
-Pinned to @pkmn/data v[x]. Mega overlays available for Reg M-B legal Megas.
-
-[LAYER 3 — ACTIVE REGULATION: REG M-B]
-Restricted slots: 2
-Mega Evolution: enabled | Tera: disabled | Z-moves: disabled | Dynamax: disabled
-Banned items: [...]
-Protect variant PP: 8 PP (Protect, Detect, Baneful Bunker, King's Shield, Obstruct, Spiky Shield, Wide Guard)
-Nihil Light PP: 8 PP (bypasses Fairy immunity — flag as tier-defining threat)
-Hyper Drill: 120 BP, bypasses Protect
-Unseen Fist: 25% damage through Protect
-Sharpness Slicing moves: Dragon Claw (120 eff.), Shadow Claw (105 eff.), Night Slash (105 eff.), Dire Claw (75 eff.)
-Moonblast SpAtk drop: 10% | Iron Head flinch: 20% | Dire Claw status proc: 30% (10% each)
-Salt Cure: 6.25% standard / 12.5% Steel+Water
-
-Dominant Mega threats:
-- Mega Dragonite: Multiscale, base 100 speed, Tailwind setter
-- Mega Glimmora: Adaptability Sludge Bomb, Toxic Debris
-- Mega Aerodactyl: Unnerve, fast Tailwind
-- Archaludon: Stamina, Electro Shot in Rain
-
-Current usage leaders (Pikalytics, [date]):
-[top 20 mons with usage %, common moves, common spreads with pre-computed stats]
-
-Active team:
-[all 6 mons with full sets, computed stats, inferred roles, benchmark list with pass/fail]
-
-Before answering any query:
-1. Confirm mon/move/item is legal in Reg M-B
-2. Check EV budget (≤510 total) before any proposed change
-3. Check all 6 mon benchmarks before proposing any EV change
-4. Show full team-wide benchmark impact in every diff proposal
-5. Never propose a change that silently breaks a passing benchmark
-6. Always flag speed ties — never resolve them deterministically
-```
+See `.env.example` for every variable with its default. Groups: AI keys and free-tier controls,
+`AI_COOKIE_SECRET`, the public Firebase web config, and the Firebase admin service account used
+only for the quota counter.
 
 ---
 
-## V1 Feature Scope
+## Dropped or deferred from the original design
 
-### In V1
+Kept here so the history is not lost and so nobody re-derives it.
 
-- Regulation selector (Reg M-B only)
-- Firebase Google auth + team library
-- Showdown paste import + export
-- Split pane UI: chat + artifact panel
-- Damage calc view with move list and all 16 rolls (simplified default + Advanced toggle)
-- Claude-inferred benchmarks on import with benchmark cards
-- Natural language benchmark editing
-- Team synergy re-evaluation on role change
-- Diff proposal flow with accept/reject
-- Speed tier view for loaded team with Tailwind/Trick Room toggles
-- Threat assessment queries ("what should [mon] be worried about in Reg M-B?")
-- Pikalytics usage cache (manual seed for V1, automated sync post-V1)
-- Chat history persisted per team session
-
-### Post-V1
-
-- Automated Pikalytics sync job + benchmark re-evaluation notifications
-- Limitless tournament set integration
-- Lead pair optimizer
-- Role compression detection
-- Weakness/resistance matrix
-- Reverse EV calc ("what EVs do I need to OHKO X?")
-- Protect PP tracker during matches
-- Multi-regulation support
-
----
-
-
-## Data Freshness Rules
-
-- **Layer 1:** Never updated at runtime. Fix in code, redeploy. Content is `ground-truth-vgc-mechanics.md`.
-- **Layer 2:** Updated only when a new regulation launches. Pin the @pkmn/data version. Historical snapshots frozen.
-- **Layer 3 regulation config:** Updated when Play Pokemon publishes a new regulation document. Official doc is ground truth for legality, not community speculation.
-- **Layer 3 usage data:** Updated weekly (Pikalytics), post-event (Limitless). Always versioned by date in Firestore.
-- **Mega overlay data:** Confirmed from official source before entry. Note the source in the notes field.
+- Firestore collections for regulations, species, moves, abilities, items, usage snapshots,
+  tournament sets, and chat sessions. Replaced by the vendored dataset, live Pikalytics, and
+  per-session chat state.
+- Claude API as the only model. Replaced by the provider-neutral client and BYOK.
+- Google OAuth as the only sign-in. Email/password was added; phone sign-in was added and removed.
+- Automatic benchmark inference on import, and benchmark re-evaluation notifications when usage
+  data updates.
+- Threat table view, diff view as a separate panel (proposals are inline cards instead), and the
+  regulation-scoped Mega overlay collection.
+- Pikalytics snapshot caching in Firestore, Limitless tournament sets, Pokémon Home stats.
+- Still open: lead pair optimizer, role compression detection, weakness/resistance matrix,
+  reverse damage calc as a first-class view, Protect PP tracker, persisted chat history.

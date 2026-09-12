@@ -5,11 +5,12 @@
  *   1. The visitor's own key (BYOK), sealed in an httpOnly cookie. Set by /api/ai-key after a
  *      validation round-trip; AES-256-GCM under AI_COOKIE_SECRET; JavaScript can never read it and
  *      it is never stored server-side. No quota applies.
- *   2. The site's free tier: the owner's key from the environment (OPENAI_API_KEY first, then
- *      GEMINI_API_KEY as a fallback so the free tier keeps working before the OpenAI key lands),
- *      limited to FREE_CHAT_LIMIT requests per signed-in Firebase account (a verified ID token is
- *      required; anonymous visitors are asked to sign in or connect a key). The limit and the
- *      running count are never exposed to the browser — the UI just says to go easy on it.
+ *   2. The site's free tier: the owner's key from the environment, tried in the order OpenAI,
+ *      Gemini, Anthropic, OpenRouter unless FREE_TIER_PROVIDER forces one. Limited to
+ *      FREE_CHAT_LIMIT requests per signed-in Firebase account (a verified ID token is required;
+ *      anonymous visitors get a signed device cookie for identity but are asked to sign in or
+ *      connect a key). The limit and the running count are never exposed to the browser — the
+ *      UI just says to go easy on it.
  * Ambient features (compare chips, blurbs, role inference) only ever use source 1 — they fall back
  * to deterministic behaviour without it — so the free tier is spent only on requests the visitor
  * explicitly triggers (chat, team builder, SP optimizer, benchmark parsing).

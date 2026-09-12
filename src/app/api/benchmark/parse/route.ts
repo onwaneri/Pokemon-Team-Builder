@@ -22,7 +22,7 @@ export async function POST(req: Request) {
   // The user typed this benchmark, so it is an interactive request: own key or a free one.
   let grant;
   try {
-    grant = await resolveAi(req, { interactive: true });
+    grant = await resolveAi(req, { job: 'parse', interactive: true });
   } catch (e) {
     if (e instanceof AiDenied) return denialResponse(e);
     throw e;

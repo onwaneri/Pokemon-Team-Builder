@@ -74,7 +74,7 @@ export async function POST(req: NextRequest) {
 
   let grant;
   try {
-    grant = await resolveAi(req, { interactive: true });
+    grant = await resolveAi(req, { job: 'optimize', interactive: true });
   } catch (e) {
     if (e instanceof AiDenied) return denialResponse(e);
     throw e;

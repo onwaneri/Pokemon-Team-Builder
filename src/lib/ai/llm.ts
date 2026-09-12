@@ -16,12 +16,14 @@ import { GoogleGenAI, type FunctionDeclaration } from '@google/genai';
 
 export type ProviderId = 'openai' | 'gemini' | 'anthropic' | 'openrouter';
 
+/** Which tier of model a job runs on: `fast` for short structured picks, `smart` for tool loops. */
+export type ModelTier = 'fast' | 'smart';
+
 export interface ProviderInfo {
   id: ProviderId;
   label: string;
-  defaultModel: string;
-  /** Models offered in the key panel; any other id may still be typed in. */
-  models: string[];
+  /** The model each tier maps to on this provider. Visitors pick a provider; the app picks these. */
+  models: Record<ModelTier, string>;
   keyPrefixHint: string;
   consoleUrl: string;
 }
@@ -30,36 +32,57 @@ export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
   openai: {
     id: 'openai',
     label: 'OpenAI',
-    defaultModel: 'gpt-5-mini',
-    models: ['gpt-5-mini', 'gpt-5', 'gpt-5-nano', 'gpt-4.1-mini', 'gpt-4.1'],
+    models: { fast: 'gpt-5-nano', smart: 'gpt-5-mini' },
     keyPrefixHint: 'sk-…',
     consoleUrl: 'https://platform.openai.com/api-keys',
   },
   gemini: {
     id: 'gemini',
     label: 'Google Gemini',
-    defaultModel: 'gemini-3.5-flash',
-    models: ['gemini-3.5-flash', 'gemini-3.5-pro', 'gemini-2.5-flash'],
+    models: { fast: 'gemini-3.5-flash', smart: 'gemini-3.5-flash' },
     keyPrefixHint: 'AIza…',
     consoleUrl: 'https://aistudio.google.com/apikey',
   },
   anthropic: {
     id: 'anthropic',
     label: 'Anthropic (Claude)',
-    defaultModel: 'claude-sonnet-5',
-    models: ['claude-sonnet-5', 'claude-haiku-4-5-20251001', 'claude-opus-5'],
+    models: { fast: 'claude-haiku-4-5-20251001', smart: 'claude-sonnet-5' },
     keyPrefixHint: 'sk-ant-…',
     consoleUrl: 'https://console.anthropic.com/settings/keys',
   },
   openrouter: {
     id: 'openrouter',
     label: 'OpenRouter',
-    defaultModel: 'openai/gpt-5-mini',
-    models: ['openai/gpt-5-mini', 'google/gemini-3.5-flash', 'anthropic/claude-sonnet-5', 'anthropic/claude-haiku-4.5'],
+    models: { fast: 'openai/gpt-5-nano', smart: 'openai/gpt-5-mini' },
     keyPrefixHint: 'sk-or-…',
     consoleUrl: 'https://openrouter.ai/keys',
   },
 };
+
+/**
+ * Every AI job the app runs, mapped to the tier it needs. Tool-driven loops (chat, team builds,
+ * SP optimization) need the smarter model; single-shot structured picks (which threats to compare,
+ * parsing a benchmark sentence, a team blurb, a paste import, a benchmark evaluation) are fine on
+ * the fast one. This is the only place that decision lives.
+ */
+export type AiJob = 'chat' | 'build' | 'optimize' | 'compare' | 'parse' | 'blurb' | 'import' | 'eval';
+export const JOB_TIER: Record<AiJob, ModelTier> = {
+  chat: 'smart',
+  build: 'smart',
+  optimize: 'smart',
+  compare: 'fast',
+  parse: 'fast',
+  blurb: 'fast',
+  import: 'fast',
+  eval: 'fast',
+};
+
+/** The model a job runs on for a provider. Env `AI_MODEL_<PROVIDER>_<TIER>` overrides a tier. */
+export function modelFor(provider: ProviderId, job: AiJob): string {
+  const tier = JOB_TIER[job];
+  const override = process.env[`AI_MODEL_${provider.toUpperCase()}_${tier.toUpperCase()}`];
+  return override?.trim() || PROVIDERS[provider].models[tier];
+}
 
 export const PROVIDER_IDS: ProviderId[] = ['openai', 'gemini', 'anthropic', 'openrouter'];
 
@@ -70,6 +93,7 @@ export function isProviderId(v: unknown): v is ProviderId {
 export interface LlmCredential {
   provider: ProviderId;
   apiKey: string;
+  /** Set by resolveAi per job (see modelFor); adapters fall back to the provider's smart tier. */
   model?: string;
 }
 
@@ -192,7 +216,7 @@ function nextCallId(): string {
 
 function geminiClient(cred: LlmCredential): LlmClient {
   const ai = new GoogleGenAI({ apiKey: cred.apiKey, httpOptions: { timeout: LLM_TIMEOUT_MS } });
-  const model = cred.model || PROVIDERS.gemini.defaultModel;
+  const model = cred.model || PROVIDERS.gemini.models.smart;
   return {
     provider: 'gemini',
     model,
@@ -243,7 +267,7 @@ const OPENAI_BASE: Record<'openai' | 'openrouter', string> = {
 
 function openAiCompatibleClient(cred: LlmCredential & { provider: 'openai' | 'openrouter' }): LlmClient {
   const base = OPENAI_BASE[cred.provider];
-  const model = cred.model || PROVIDERS[cred.provider].defaultModel;
+  const model = cred.model || PROVIDERS[cred.provider].models.smart;
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     Authorization: `Bearer ${cred.apiKey}`,
@@ -271,12 +295,13 @@ function openAiCompatibleClient(cred: LlmCredential & { provider: 'openai' | 'op
       }
       const body: Record<string, unknown> = { model, messages };
       // Reasoning models default to medium effort, which meant 30–130 s per round for what is a
-      // tool-lookup workload. Low effort keeps rounds in the single digits of seconds.
-      if (/^(gpt-5|o\d)/.test(model)) {
-        if (cred.provider === 'openrouter') body.reasoning = { effort: 'low' };
-        else { body.reasoning_effort = 'low'; body.verbosity = 'low'; }
-      } else if (cred.provider === 'openrouter' && /gpt-5|\/o\d|reasoning|thinking/.test(model)) {
-        body.reasoning = { effort: 'low' };
+      // tool-lookup workload. Low effort keeps rounds in the single digits of seconds, and the
+      // fast tier (single-shot structured picks) barely needs to think at all.
+      const reasoning = /^(gpt-5|o\d)/.test(model) || (cred.provider === 'openrouter' && /gpt-5|\/o\d|reasoning|thinking/.test(model));
+      if (reasoning) {
+        const effort = model === PROVIDERS[cred.provider].models.fast ? 'minimal' : 'low';
+        if (cred.provider === 'openrouter') body.reasoning = { effort };
+        else { body.reasoning_effort = effort; body.verbosity = 'low'; }
       }
       if (opts.tools?.length) {
         body.tools = opts.tools.map((t) => ({
@@ -288,7 +313,9 @@ function openAiCompatibleClient(cred: LlmCredential & { provider: 'openai' | 'op
       if (opts.jsonSchema) {
         body.response_format = { type: 'json_schema', json_schema: { name: 'result', schema: toJsonSchema(opts.jsonSchema) } };
       }
-      if (opts.maxTokens) body.max_completion_tokens = opts.maxTokens;
+      // Reasoning tokens count against the completion cap, so a tight cap meant for the visible
+      // answer would otherwise come back empty. Leave room for the thinking.
+      if (opts.maxTokens) body.max_completion_tokens = reasoning ? opts.maxTokens + 1500 : opts.maxTokens;
 
       const res = await timedFetch(`${base}/chat/completions`, { method: 'POST', headers, body: JSON.stringify(body) }, cred.provider);
       const json = await res.json().catch(() => ({}));
@@ -313,7 +340,7 @@ function openAiCompatibleClient(cred: LlmCredential & { provider: 'openai' | 'op
 const JSON_TOOL = 'emit_result';
 
 function anthropicClient(cred: LlmCredential): LlmClient {
-  const model = cred.model || PROVIDERS.anthropic.defaultModel;
+  const model = cred.model || PROVIDERS.anthropic.models.smart;
   const headers = {
     'Content-Type': 'application/json',
     'x-api-key': cred.apiKey,
@@ -394,59 +421,6 @@ export async function validateCredential(cred: LlmCredential): Promise<{ ok: tru
   } catch (e) {
     return { ok: false, error: scrub((e as Error).message || 'Validation failed.', cred.apiKey) };
   }
-}
-
-// ─── Model listing ────────────────────────────────────────────────────────────
-
-export interface ModelListing {
-  /** Every chat-capable model the key can use, curated defaults first, then alphabetical. */
-  models: string[];
-  recommended: string;
-}
-
-const OPENAI_EXCLUDE = /embedding|whisper|tts|dall-e|realtime|audio|transcri|moderation|image|search|computer-use|codex|instruct|davinci|babbage/i;
-const GEMINI_EXCLUDE = /embedding|imagen|veo|tts|image|aqa|learnlm|live/i;
-
-function orderModels(all: string[], curated: string[]): string[] {
-  const set = new Set(all);
-  const head = curated.filter((m) => set.has(m));
-  const rest = all.filter((m) => !head.includes(m)).sort();
-  return [...head, ...rest];
-}
-
-/** Ask the provider which models this key can use. Falls back to the curated list on failure. */
-export async function listModels(cred: LlmCredential): Promise<ModelListing> {
-  const info = PROVIDERS[cred.provider];
-  let all: string[] = [];
-  try {
-    if (cred.provider === 'gemini') {
-      const ai = new GoogleGenAI({ apiKey: cred.apiKey });
-      const pager = await ai.models.list({ config: { pageSize: 200 } });
-      for await (const m of pager) {
-        const name = (m.name ?? '').replace(/^models\//, '');
-        const actions = (m as { supportedActions?: string[] }).supportedActions ?? [];
-        if (name.startsWith('gemini') && !GEMINI_EXCLUDE.test(name) && (!actions.length || actions.includes('generateContent'))) all.push(name);
-      }
-    } else if (cred.provider === 'anthropic') {
-      const res = await fetch('https://api.anthropic.com/v1/models?limit=100', { headers: { 'x-api-key': cred.apiKey, 'anthropic-version': '2023-06-01' } });
-      const json = (await res.json()) as { data?: { id: string }[] };
-      if (res.ok) all = (json.data ?? []).map((m) => m.id);
-    } else if (cred.provider === 'openrouter') {
-      const res = await fetch('https://openrouter.ai/api/v1/models', { headers: { Authorization: `Bearer ${cred.apiKey}` } });
-      const json = (await res.json()) as { data?: { id: string; supported_parameters?: string[] }[] };
-      // Only models that accept tool calls can drive the app's engine tools.
-      if (res.ok) all = (json.data ?? []).filter((m) => (m.supported_parameters ?? []).includes('tools')).map((m) => m.id);
-    } else {
-      const res = await fetch('https://api.openai.com/v1/models', { headers: { Authorization: `Bearer ${cred.apiKey}` } });
-      const json = (await res.json()) as { data?: { id: string }[] };
-      if (res.ok) all = (json.data ?? []).map((m) => m.id).filter((id) => /^(gpt-|o\d)/.test(id) && !OPENAI_EXCLUDE.test(id));
-    }
-  } catch {
-    all = [];
-  }
-  const models = all.length ? orderModels(all, info.models) : [...info.models];
-  const recommended = models.includes(info.defaultModel) ? info.defaultModel : models[0];
-  return { models, recommended };
 }
 
 /** Last four characters, for "connected as …" display. Never the key itself. */

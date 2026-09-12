@@ -25,7 +25,7 @@ export async function POST(req: Request) {
   // Interactive: the visitor's own key, or one of their free requests.
   let grant;
   try {
-    grant = await resolveAi(req, { interactive: true });
+    grant = await resolveAi(req, { job: 'chat', interactive: true });
   } catch (e) {
     if (e instanceof AiDenied) return denialResponse(e);
     throw e;

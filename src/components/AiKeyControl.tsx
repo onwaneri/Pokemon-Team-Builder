@@ -7,19 +7,19 @@
  * /api/ai-key, is validated with the provider, and comes back only as an httpOnly cookie — this
  * component never sees it again. Opens automatically when a request is refused for quota.
  */
-import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { emitAiEvent, type AiDeniedEvent, type AiUsageEvent } from '@/lib/aiFetch';
 
 interface ProviderOption {
   id: string;
   label: string;
-  defaultModel: string;
-  models: string[];
+  /** Which model the server runs each tier on; shown so visitors know what their key is used for. */
+  models: { fast: string; smart: string };
   keyPrefixHint: string;
   consoleUrl: string;
 }
 interface AiStatus {
-  byok: { provider: string; model: string; fingerprint: string } | null;
+  byok: { provider: string; fingerprint: string } | null;
   free: { configured: boolean; signedIn: boolean; exhausted: boolean };
   providers: ProviderOption[];
 }
@@ -116,48 +116,13 @@ export default function AiKeyControl() {
 function AiKeyPanel({ status, notice, onClose, onChanged }: { status: AiStatus; notice: string | null; onClose: () => void; onChanged: () => Promise<void> }) {
   const [provider, setProvider] = useState(status.byok?.provider ?? 'openai');
   const [apiKey, setApiKey] = useState('');
-  const [model, setModel] = useState(status.byok?.model ?? status.providers.find((p) => p.id === (status.byok?.provider ?? 'openai'))?.defaultModel ?? '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const info = status.providers.find((p) => p.id === provider);
-
-  // Model list for the key being typed: curated defaults until the key is long enough to ask the
-  // provider, then everything that key can actually use.
-  const [models, setModels] = useState<string[]>(info?.models ?? []);
-  const [modelsLive, setModelsLive] = useState(false);
-  const [loadingModels, setLoadingModels] = useState(false);
-  const loadSeq = useRef(0);
-
-  const loadModels = useCallback(async (prov: string, key: string) => {
-    const seq = ++loadSeq.current;
-    setLoadingModels(true);
-    try {
-      const r = await fetch('/api/ai-key/models', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ provider: prov, apiKey: key }) });
-      const data = (await r.json()) as { models?: string[]; recommended?: string; live?: boolean };
-      if (seq !== loadSeq.current || !r.ok || !data.models?.length) return;
-      setModels(data.models);
-      setModelsLive(!!data.live);
-      setModel((m) => (data.models!.includes(m) ? m : data.recommended ?? data.models![0]));
-    } catch {
-      /* keep the curated list */
-    } finally {
-      if (seq === loadSeq.current) setLoadingModels(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    const key = apiKey.trim();
-    if (key.length < 16) return;
-    const t = setTimeout(() => { loadModels(provider, key); }, 600);
-    return () => clearTimeout(t);
-  }, [apiKey, provider, loadModels]);
+  const connected = status.byok ? status.providers.find((p) => p.id === status.byok!.provider) : null;
 
   function pickProvider(id: string) {
-    const next = status.providers.find((p) => p.id === id);
     setProvider(id);
-    setModel(next?.defaultModel ?? '');
-    setModels(next?.models ?? []);
-    setModelsLive(false);
     setError(null);
   }
 
@@ -167,7 +132,7 @@ function AiKeyPanel({ status, notice, onClose, onChanged }: { status: AiStatus; 
     setBusy(true);
     setError(null);
     try {
-      const r = await fetch('/api/ai-key', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ provider, apiKey, model }) });
+      const r = await fetch('/api/ai-key', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ provider, apiKey }) });
       const data = await r.json();
       if (!r.ok) { setError(data.error ?? 'Could not connect the key.'); return; }
       setApiKey('');
@@ -209,8 +174,8 @@ function AiKeyPanel({ status, notice, onClose, onChanged }: { status: AiStatus; 
         <div style={{ borderRadius: 10, border: '1px solid rgba(99,102,241,0.16)', background: 'rgba(12,12,28,0.85)', padding: '10px 12px', fontSize: 12, color: '#b0b0d8', lineHeight: 1.55 }}>
           {status.byok ? (
             <>
-              Using <strong style={{ color: '#e4e4f8' }}>your {status.providers.find((p) => p.id === status.byok!.provider)?.label ?? status.byok.provider} key</strong> ({status.byok.fingerprint}). No limits from this site; usage bills to your account.
-              <ConnectedModel current={status.byok.model} fallback={status.providers.find((p) => p.id === status.byok!.provider)?.models ?? []} onChanged={onChanged} />
+              Using <strong style={{ color: '#e4e4f8' }}>your {connected?.label ?? status.byok.provider} key</strong> ({status.byok.fingerprint}). No limits from this site; usage bills to your account.
+              {connected && <ModelNote models={connected.models} />}
               <div style={{ marginTop: 8 }}>
                 <button onClick={disconnect} disabled={busy} style={{ ...btnBase, borderColor: 'rgba(248,113,113,0.3)', color: '#fca5a5', background: 'transparent' }}>Disconnect key</button>
               </div>
@@ -244,15 +209,7 @@ function AiKeyPanel({ status, notice, onClose, onChanged }: { status: AiStatus; 
             <div style={labelStyle}>API key {info && <a href={info.consoleUrl} target="_blank" rel="noreferrer" style={{ color: '#6366f1', textTransform: 'none', letterSpacing: 0, marginLeft: 6 }}>get one ↗</a>}</div>
             <input type="password" autoComplete="off" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder={info?.keyPrefixHint ?? 'API key'} style={fieldStyle as React.CSSProperties} />
           </div>
-          <div>
-            <div style={labelStyle}>
-              Model
-              <span style={{ marginLeft: 6, textTransform: 'none', letterSpacing: 0, color: '#40406a' }}>
-                {loadingModels ? 'loading your models…' : modelsLive ? `${models.length} available on this key` : 'paste a key to load every model it can use'}
-              </span>
-            </div>
-            <ModelSelect models={models} value={model} onChange={setModel} recommended={info?.defaultModel} />
-          </div>
+          {info && !status.byok && <ModelNote models={info.models} />}
           {error && <div style={{ fontSize: 11, color: '#f87171', lineHeight: 1.5 }}>{error}</div>}
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <button type="submit" disabled={busy || !apiKey.trim()} style={{ padding: '7px 18px', borderRadius: 9, background: '#6366f1', color: 'white', border: 'none', fontSize: 12, fontWeight: 800, cursor: busy || !apiKey.trim() ? 'not-allowed' : 'pointer', opacity: busy || !apiKey.trim() ? 0.6 : 1 }}>
@@ -268,73 +225,14 @@ function AiKeyPanel({ status, notice, onClose, onChanged }: { status: AiStatus; 
   );
 }
 
-/** Select over every listed model, with an "Other…" escape for ids the provider list does not show. */
-function ModelSelect({ models, value, onChange, recommended, disabled }: { models: string[]; value: string; onChange: (m: string) => void; recommended?: string; disabled?: boolean }) {
-  const custom = !!value && !models.includes(value);
-  const [other, setOther] = useState(custom);
-  const selectStyle: React.CSSProperties = { width: '100%', background: 'rgba(4,4,14,0.9)', border: '1px solid rgba(99,102,241,0.25)', borderRadius: 8, padding: '8px 10px', fontSize: 12, color: '#e0e0f4', outline: 'none', fontWeight: 600, colorScheme: 'dark' };
-  if (other || custom) {
-    return (
-      <div style={{ display: 'flex', gap: 6 }}>
-        <input value={value} onChange={(e) => onChange(e.target.value)} placeholder="model id" disabled={disabled} style={{ ...selectStyle, flex: 1 }} />
-        <button type="button" onClick={() => { setOther(false); onChange(recommended && models.includes(recommended) ? recommended : models[0] ?? ''); }} style={{ ...btnBase, padding: '4px 10px' }}>List</button>
-      </div>
-    );
-  }
+/** What the app will run on this provider; the visitor never picks a model, the job does. */
+function ModelNote({ models }: { models: { fast: string; smart: string } }) {
+  const same = models.fast === models.smart;
   return (
-    <select value={value} disabled={disabled} onChange={(e) => { if (e.target.value === '__other__') { setOther(true); onChange(''); } else onChange(e.target.value); }} style={selectStyle}>
-      {models.map((m) => <option key={m} value={m}>{m}{m === recommended ? '  (recommended)' : ''}</option>)}
-      <option value="__other__">Other… (type a model id)</option>
-    </select>
-  );
-}
-
-/** Model picker for an already-connected key: lists what that key can use and saves via PATCH. */
-function ConnectedModel({ current, fallback, onChanged }: { current: string; fallback: string[]; onChanged: () => Promise<void> }) {
-  const [models, setModels] = useState<string[]>(fallback.includes(current) ? fallback : [current, ...fallback]);
-  const [recommended, setRecommended] = useState<string | undefined>(undefined);
-  const [value, setValue] = useState(current);
-  const [state, setState] = useState<'idle' | 'loading' | 'saving' | 'saved' | 'error'>('loading');
-
-  useEffect(() => {
-    let cancelled = false;
-    fetch('/api/ai-key/models')
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d: { models?: string[]; recommended?: string } | null) => {
-        if (cancelled) return;
-        if (d?.models?.length) {
-          setModels(d.models.includes(current) ? d.models : [current, ...d.models]);
-          setRecommended(d.recommended);
-        }
-        setState('idle');
-      })
-      .catch(() => { if (!cancelled) setState('idle'); });
-    return () => { cancelled = true; };
-  }, [current]);
-
-  async function save(next: string) {
-    setValue(next);
-    if (!next || next === current) return;
-    setState('saving');
-    try {
-      const r = await fetch('/api/ai-key', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: next }) });
-      if (!r.ok) throw new Error();
-      setState('saved');
-      await onChanged();
-    } catch {
-      setState('error');
-    }
-  }
-
-  return (
-    <div style={{ marginTop: 8 }}>
-      <div style={{ fontSize: 9, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.8px', color: '#50508a', marginBottom: 4 }}>
-        Model
-        <span style={{ marginLeft: 6, textTransform: 'none', letterSpacing: 0, color: state === 'error' ? '#f87171' : '#40406a' }}>
-          {state === 'loading' ? 'loading your models…' : state === 'saving' ? 'saving…' : state === 'saved' ? 'saved' : state === 'error' ? 'could not save' : `${models.length} available`}
-        </span>
-      </div>
-      <ModelSelect models={models} value={value} onChange={save} recommended={recommended} disabled={state === 'saving'} />
+    <div style={{ marginTop: 6, fontSize: 10, color: '#50507a', lineHeight: 1.5 }}>
+      Models are chosen per task:{' '}
+      <code style={{ color: '#8b8bf0', fontSize: 10 }}>{models.smart}</code> for chat, team builds and SP optimization
+      {same ? '' : <>, <code style={{ color: '#8b8bf0', fontSize: 10 }}>{models.fast}</code> for quick lookups</>}.
     </div>
   );
 }

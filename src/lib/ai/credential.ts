@@ -17,7 +17,7 @@
  */
 import { cookies } from 'next/headers';
 import { createCipheriv, createDecipheriv, createHmac, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
-import { createLlmClient, isProviderId, keyFingerprint, PROVIDERS, type LlmClient, type LlmCredential, type ProviderId } from '@/lib/ai/llm';
+import { createLlmClient, isProviderId, keyFingerprint, modelFor, type AiJob, type LlmClient, type LlmCredential, type ProviderId } from '@/lib/ai/llm';
 import { verifyIdToken } from '@/lib/firebase/server';
 import { quotaStore, FREE_CHAT_LIMIT } from '@/lib/ai/quota';
 
@@ -86,33 +86,24 @@ const isProd = process.env.NODE_ENV === 'production';
 interface SealedKey {
   provider: ProviderId;
   apiKey: string;
-  model?: string;
 }
 
 export async function readByok(): Promise<LlmCredential | null> {
   const store = await cookies();
   const parsed = unseal<SealedKey>(store.get(KEY_COOKIE)?.value);
   if (!parsed || !isProviderId(parsed.provider) || typeof parsed.apiKey !== 'string' || !parsed.apiKey) return null;
-  return { provider: parsed.provider, apiKey: parsed.apiKey, model: parsed.model };
+  return { provider: parsed.provider, apiKey: parsed.apiKey };
 }
 
 export async function writeByok(cred: LlmCredential): Promise<void> {
   const store = await cookies();
-  store.set(KEY_COOKIE, seal({ provider: cred.provider, apiKey: cred.apiKey, model: cred.model }), {
+  store.set(KEY_COOKIE, seal({ provider: cred.provider, apiKey: cred.apiKey }), {
     httpOnly: true,
     secure: isProd,
     sameSite: 'strict',
     path: '/api',
     maxAge: KEY_COOKIE_DAYS * 24 * 3600,
   });
-}
-
-/** Re-seal the connected key with a different model. Returns false when no key is connected. */
-export async function updateByokModel(model: string): Promise<boolean> {
-  const current = await readByok();
-  if (!current) return false;
-  await writeByok({ ...current, model });
-  return true;
 }
 
 export async function clearByok(): Promise<void> {
@@ -156,20 +147,21 @@ export async function resolveIdentity(req: Request): Promise<Identity> {
 
 function freeTierCredential(): LlmCredential | null {
   const forced = process.env.FREE_TIER_PROVIDER;
-  const candidates: { provider: ProviderId; key?: string; model?: string }[] = [
-    { provider: 'openai', key: process.env.OPENAI_API_KEY, model: process.env.FREE_TIER_MODEL || process.env.OPENAI_MODEL },
-    { provider: 'gemini', key: process.env.GEMINI_API_KEY, model: process.env.GEMINI_MODEL },
-    { provider: 'anthropic', key: process.env.ANTHROPIC_API_KEY, model: process.env.ANTHROPIC_MODEL },
-    { provider: 'openrouter', key: process.env.OPENROUTER_API_KEY, model: process.env.OPENROUTER_MODEL },
+  const candidates: { provider: ProviderId; key?: string }[] = [
+    { provider: 'openai', key: process.env.OPENAI_API_KEY },
+    { provider: 'gemini', key: process.env.GEMINI_API_KEY },
+    { provider: 'anthropic', key: process.env.ANTHROPIC_API_KEY },
+    { provider: 'openrouter', key: process.env.OPENROUTER_API_KEY },
   ];
   const ordered = isProviderId(forced) ? [...candidates.filter((c) => c.provider === forced), ...candidates.filter((c) => c.provider !== forced)] : candidates;
   const hit = ordered.find((c) => c.key);
-  return hit ? { provider: hit.provider, apiKey: hit.key!, model: hit.model || PROVIDERS[hit.provider].defaultModel } : null;
+  return hit ? { provider: hit.provider, apiKey: hit.key! } : null;
 }
 
 export type AiSource = 'byok' | 'free';
 
 export interface AiGrant {
+  /** Client bound to the model this job runs on (see modelFor in llm.ts). */
   client: LlmClient;
   source: AiSource;
   /** Undo the free-tier charge when the upstream call failed outright. */
@@ -188,20 +180,23 @@ export class AiDenied extends Error {
 }
 
 /**
- * Resolve the client for an AI request.
+ * Resolve the client for an AI request. The visitor only ever chooses a provider; the model is
+ * picked here from the job (chat and builds on the provider's smart tier, structured one-shot
+ * jobs on its fast tier).
  *   interactive=true  → BYOK, else the free tier (signed-in users only, counted), else AiDenied.
  *   interactive=false → BYOK only; returns null so the caller uses its deterministic fallback.
  */
-export async function resolveAi(req: Request, opts: { interactive: true; consume?: boolean }): Promise<AiGrant>;
-export async function resolveAi(req: Request, opts: { interactive: false }): Promise<AiGrant | null>;
-export async function resolveAi(req: Request, opts: { interactive: boolean; consume?: boolean }): Promise<AiGrant | null> {
+export async function resolveAi(req: Request, opts: { job: AiJob; interactive: true; consume?: boolean }): Promise<AiGrant>;
+export async function resolveAi(req: Request, opts: { job: AiJob; interactive: false }): Promise<AiGrant | null>;
+export async function resolveAi(req: Request, opts: { job: AiJob; interactive: boolean; consume?: boolean }): Promise<AiGrant | null> {
   const byok = await readByok();
   if (byok) {
+    const model = modelFor(byok.provider, opts.job);
     return {
-      client: createLlmClient(byok),
+      client: createLlmClient({ ...byok, model }),
       source: 'byok',
       refund: async () => {},
-      headers: { 'X-AI-Source': 'byok', 'X-AI-Provider': byok.provider },
+      headers: { 'X-AI-Source': 'byok', 'X-AI-Provider': byok.provider, 'X-AI-Model': model },
     };
   }
   if (!opts.interactive) return null;
@@ -223,11 +218,12 @@ export async function resolveAi(req: Request, opts: { interactive: boolean; cons
     }
     await quota.consume(identity.id);
   }
+  const model = modelFor(free.provider, opts.job);
   return {
-    client: createLlmClient(free),
+    client: createLlmClient({ ...free, model }),
     source: 'free',
     refund: () => quota.refund(identity.id),
-    headers: { 'X-AI-Source': 'free', 'X-AI-Provider': free.provider },
+    headers: { 'X-AI-Source': 'free', 'X-AI-Provider': free.provider, 'X-AI-Model': model },
   };
 }
 
@@ -252,7 +248,7 @@ export function openState<T>(token: unknown): T | null {
 
 /** What the key panel shows. No numbers: the limit and the count stay on the server. */
 export async function aiStatus(req: Request): Promise<{
-  byok: { provider: ProviderId; model: string; fingerprint: string } | null;
+  byok: { provider: ProviderId; fingerprint: string } | null;
   free: { configured: boolean; signedIn: boolean; exhausted: boolean };
   store: 'firestore' | 'memory';
 }> {
@@ -262,7 +258,7 @@ export async function aiStatus(req: Request): Promise<{
   const store = quotaStore();
   const exhausted = identity.kind === 'account' ? (await store.used(identity.id)) >= FREE_CHAT_LIMIT : false;
   return {
-    byok: byok ? { provider: byok.provider, model: byok.model || PROVIDERS[byok.provider].defaultModel, fingerprint: keyFingerprint(byok.apiKey) } : null,
+    byok: byok ? { provider: byok.provider, fingerprint: keyFingerprint(byok.apiKey) } : null,
     free: { configured: !!free, signedIn: identity.kind === 'account', exhausted },
     store: store.kind,
   };

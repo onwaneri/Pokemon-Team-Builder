@@ -21,7 +21,7 @@ export async function POST(req: Request) {
 
   // Re-parsing benchmarks that still lack a structured check is ambient work: it only happens on
   // the visitor's own key. Without one they stay "needs review", which the evaluator reports.
-  const grant = await resolveAi(req, { interactive: false });
+  const grant = await resolveAi(req, { job: 'eval', interactive: false });
   const withChecks: Benchmark[] = await Promise.all(
     body.benchmarks.map(async (b) => {
       if (b.check || !grant) return b;

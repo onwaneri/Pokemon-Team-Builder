@@ -50,7 +50,7 @@ export async function POST(req: Request) {
   });
 
   // Infer one-line roles only — no auto-generated benchmarks.
-  const grant = await resolveAi(req, { interactive: false });
+  const grant = await resolveAi(req, { job: 'import', interactive: false });
   const inferred = await inferTeam(withStats, ruleset, grant?.client ?? null);
   const roleBySlot = new Map(inferred.map((i) => [i.slot, i.role]));
 

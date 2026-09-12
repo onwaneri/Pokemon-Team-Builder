@@ -29,7 +29,7 @@ export async function POST(req: Request) {
   if (!focus.length) return NextResponse.json({ error: 'focus must include at least one legal species.' }, { status: 400 });
 
   try {
-    const grant = await resolveAi(req, { interactive: false });
+    const grant = await resolveAi(req, { job: 'compare', interactive: false });
     const data = await generateCompareSet({ mode, focus, teamSpecies: body.teamSpecies, count: body.count, regulation, client: grant?.client ?? null });
     return NextResponse.json(data, { headers: grant?.headers ?? {} });
   } catch (e) {

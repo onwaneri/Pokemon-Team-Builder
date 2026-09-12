@@ -51,7 +51,7 @@ export async function POST(req: Request) {
   }
 
   // Ambient feature: only runs on the visitor's own key; never spends the free tier.
-  const grant = await resolveAi(req, { interactive: false });
+  const grant = await resolveAi(req, { job: 'blurb', interactive: false });
   if (!grant) {
     return NextResponse.json({ blurb: '' });
   }

@@ -10,7 +10,7 @@ const nunito = Nunito({
 });
 
 export const metadata: Metadata = {
-  title: 'VGC Champions Tool',
+  title: 'Forge',
   description: 'Pokemon VGC team builder and damage calculator',
 };
 

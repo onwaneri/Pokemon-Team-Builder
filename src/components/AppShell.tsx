@@ -59,13 +59,9 @@ export default function AppShell({ listsByRuleset }: { listsByRuleset: Record<Ru
               <circle cx="11" cy="11" r="1.5" fill="#6366f1" />
             </svg>
             <span style={{ fontSize: 17, fontWeight: 900, letterSpacing: '-0.5px', color: '#eaeaf8' }}>
-              VGC Champions Tool
+              Forge
             </span>
           </div>
-          <div style={{ width: 1, height: 18, background: 'rgba(99,102,241,0.18)' }} />
-          <span style={{ fontSize: 11, color: '#40406a', fontWeight: 600 }}>
-            {lists.species.length} species · {lists.moves.length} moves · {lists.items.length} items
-          </span>
         </div>
         <div className="flex items-center" style={{ gap: 10 }}>
           {fallbackLabel && (

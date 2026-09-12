@@ -10,7 +10,7 @@
     "providers": {
       "emailPassword": true,
       "googleSignIn": {
-        "oAuthBrandDisplayName": "VGC Champions Tool",
+        "oAuthBrandDisplayName": "Forge",
         "supportEmail": "ndnwaneri2028@u.northwestern.edu"
       }
     }

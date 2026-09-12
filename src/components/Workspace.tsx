@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * Workspace — the root client component for the VGC Champions Tool.
+ * Workspace — the root client component for Forge (the VGC Champions team builder).
  *
  * Two top-level modes:
  *   'library' — shows TeamLibrary full-width (initial state). Chat panel is hidden.
@@ -51,6 +51,7 @@ import { teamStore as localTeamStore, teamHash } from '@/lib/library/store';
 import { useAuth } from '@/components/AuthProvider';
 import { aiFetch } from '@/lib/aiFetch';
 import { exportTeamPaste } from '@/lib/showdown/export';
+import { suggestTeamNames, isPlaceholderName } from '@/lib/library/teamNames';
 import type { SavedTeam } from '@/lib/library/types';
 
 interface LegalityIssue { message: string }
@@ -172,6 +173,8 @@ export default function Workspace({ lists }: { lists: FormLists }) {
   // ─── Save-prompt modal ─────────────────────────────────────────────────────
   const [showSavePrompt, setShowSavePrompt] = useState(false);
   const [savePromptName, setSavePromptName] = useState('');
+  /** Name picker shown on the first save of a still-untitled team (and from the ✦ next to the name). */
+  const [namePicker, setNamePicker] = useState<{ value: string; suggestions: string[]; then: 'save' | 'rename' } | null>(null);
   /** After save-prompt resolves, either go to library or do nothing. */
   const [savePromptTarget, setSavePromptTarget] = useState<'library' | null>(null);
 
@@ -336,8 +339,8 @@ export default function Workspace({ lists }: { lists: FormLists }) {
       setMode('library');
       return;
     }
-    // Otherwise prompt.
-    setSavePromptName(currentTeamName);
+    // Otherwise prompt; an untitled team gets a suggested name prefilled.
+    setSavePromptName(isPlaceholderName(currentTeamName) ? (suggestTeamNames(team)[0] ?? currentTeamName) : currentTeamName);
     setSavePromptTarget('library');
     setShowSavePrompt(true);
   }
@@ -423,7 +426,27 @@ export default function Workspace({ lists }: { lists: FormLists }) {
 
   // ─── Save (⋯ menu) — uses the inline toolbar name, defaulting to "Untitled Team" ──
   function handleSaveButton() {
+    // First save of an untitled team: offer instant, composition-based names before writing.
+    if (!currentTeamId && isPlaceholderName(currentTeamName) && team) {
+      const suggestions = suggestTeamNames(team);
+      setNamePicker({ value: suggestions[0] ?? 'Untitled Team', suggestions, then: 'save' });
+      return;
+    }
     saveCurrentTeam(currentTeamName.trim() || 'Untitled Team');
+  }
+
+  function openNamePicker() {
+    if (!team) return;
+    const suggestions = suggestTeamNames(team);
+    setNamePicker({ value: isPlaceholderName(currentTeamName) ? (suggestions[0] ?? '') : currentTeamName, suggestions, then: currentTeamId ? 'rename' : 'save' });
+  }
+
+  function confirmNamePicker() {
+    if (!namePicker) return;
+    const name = namePicker.value.trim() || 'Untitled Team';
+    setNamePicker(null);
+    if (namePicker.then === 'save') saveCurrentTeam(name);
+    else commitTeamName(name);
   }
 
   /** Inline toolbar rename: updates the open team and, if it is saved, the library record. */
@@ -779,6 +802,16 @@ export default function Workspace({ lists }: { lists: FormLists }) {
             </button>
             <div style={{ width: 1, height: 18, background: 'rgba(99,102,241,0.18)', flexShrink: 0 }} />
             <InlineTeamName value={currentTeamName} onCommit={commitTeamName} />
+            {team && (
+              <button
+                onClick={openNamePicker}
+                title="Suggest a name from the team"
+                aria-label="Suggest a team name"
+                style={{ background: 'none', border: 'none', color: '#8b8bf0', fontSize: 13, cursor: 'pointer', padding: '0 2px', fontWeight: 900, lineHeight: 1 }}
+              >
+                ✦
+              </button>
+            )}
             <div style={{ flex: 1 }} />
             <TabBtn active={view === 'team'} onClick={() => setView('team')}>
               Team
@@ -911,6 +944,42 @@ export default function Workspace({ lists }: { lists: FormLists }) {
       {exportModal}
       {importModal}
 
+      {/* ── Name picker (first save / ✦ next to the name) ───────────────────── */}
+      {namePicker && (
+        <ModalOverlay onClose={() => setNamePicker(null)}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div>
+              <p style={{ fontSize: 14, fontWeight: 800, color: '#eaeaf8', margin: 0 }}>Name this team</p>
+              <p style={{ fontSize: 11, color: '#6a6a9a', margin: '3px 0 0' }}>Suggested from the team&apos;s mode, Mega, and core. Edit freely.</p>
+            </div>
+            <input
+              value={namePicker.value}
+              onChange={(e) => setNamePicker({ ...namePicker, value: e.target.value })}
+              onKeyDown={(e) => { if (e.key === 'Enter') confirmNamePicker(); if (e.key === 'Escape') setNamePicker(null); }}
+              onFocus={(e) => e.currentTarget.select()}
+              autoFocus
+              placeholder="Team name"
+              aria-label="Team name"
+              style={{ background: 'rgba(5,5,15,0.9)', border: '1px solid rgba(99,102,241,0.4)', borderRadius: 8, padding: '8px 11px', color: '#eaeaf8', fontSize: 14, fontWeight: 800, outline: 'none', colorScheme: 'dark' } as React.CSSProperties}
+            />
+            <NameChips suggestions={namePicker.suggestions} current={namePicker.value} onPick={(v) => setNamePicker({ ...namePicker, value: v })} />
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={confirmNamePicker} style={{ padding: '6px 18px', borderRadius: 8, background: '#6366f1', color: 'white', border: 'none', fontSize: 13, fontWeight: 800, cursor: 'pointer' }}>
+                {namePicker.then === 'save' ? 'Save' : 'Rename'}
+              </button>
+              {namePicker.then === 'save' && (
+                <button onClick={() => { setNamePicker(null); saveCurrentTeam('Untitled Team'); }} style={{ padding: '6px 14px', borderRadius: 8, border: '1px solid rgba(99,102,241,0.22)', background: 'transparent', color: '#7070a0', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+                  Save as Untitled
+                </button>
+              )}
+              <button onClick={() => setNamePicker(null)} style={{ padding: '6px 14px', borderRadius: 8, border: '1px solid rgba(99,102,241,0.22)', background: 'transparent', color: '#7070a0', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </ModalOverlay>
+      )}
+
       {/* ── Save-prompt modal (unsaved changes guard) ───────────────────────── */}
       {showSavePrompt && (
         <ModalOverlay onClose={() => setShowSavePrompt(false)}>
@@ -933,6 +1002,7 @@ export default function Workspace({ lists }: { lists: FormLists }) {
                 colorScheme: 'dark',
               } as React.CSSProperties}
             />
+            {team && <NameChips suggestions={suggestTeamNames(team)} current={savePromptName} onPick={setSavePromptName} />}
             <div style={{ display: 'flex', gap: 8 }}>
               <button
                 onClick={async () => {
@@ -993,6 +1063,28 @@ function TabBtn({ active, onClick, children }: { active: boolean; onClick: () =>
 }
 
 /** Click-to-edit team name in the editor toolbar. Enter or blur commits; Escape reverts. */
+/** One-click name suggestions (chips); the current value is highlighted. */
+function NameChips({ suggestions, current, onPick }: { suggestions: string[]; current: string; onPick: (name: string) => void }) {
+  if (!suggestions.length) return null;
+  return (
+    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+      {suggestions.map((s) => {
+        const active = s === current;
+        return (
+          <button
+            key={s}
+            type="button"
+            onClick={() => onPick(s)}
+            style={{ padding: '4px 10px', borderRadius: 999, border: `1px solid ${active ? '#8b8bf0' : 'rgba(99,102,241,0.28)'}`, background: active ? 'rgba(99,102,241,0.22)' : 'rgba(99,102,241,0.07)', color: active ? '#e4e4f8' : '#a0a0d8', fontSize: 11, fontWeight: 800, cursor: 'pointer' }}
+          >
+            ✦ {s}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function InlineTeamName({ value, onCommit }: { value: string; onCommit: (name: string) => void }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);

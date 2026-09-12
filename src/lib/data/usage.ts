@@ -20,6 +20,9 @@ const BASE = 'https://www.pikalytics.com/ai/pokedex';
 const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour in-process cache
 const MISSING_FORMAT_RETRY_MS = 5 * 60 * 1000; // re-probe unpublished formats every 5 minutes
 const HEADERS = { 'User-Agent': 'VGC-Champions-Tool/1.0' };
+// Pikalytics occasionally stalls; a hung fetch inside a serverless request would run into the
+// platform's function timeout and surface as a raw error page, so every upstream call is capped.
+const UPSTREAM_TIMEOUT_MS = 10_000;
 
 const memCache = new Map<string, { data: UsageData; ts: number }>();
 const formatPageCache = new Map<string, { md: string | null; ts: number }>();
@@ -30,7 +33,7 @@ async function fetchFormatPage(format: string): Promise<string | null> {
   if (cached && Date.now() - cached.ts < CACHE_TTL_MS) return cached.md;
   let md: string | null = null;
   try {
-    const res = await fetch(`${BASE}/${format}`, { headers: HEADERS, next: { revalidate: 3600 } });
+    const res = await fetch(`${BASE}/${format}`, { headers: HEADERS, next: { revalidate: 3600 }, signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS) });
     if (res.ok) {
       const text = await res.text();
       // "# Format Not Found" is a 200 with a stub body; a real page has a rankings table.
@@ -100,6 +103,7 @@ export async function fetchUsage(species: string, ruleset: RulesetId = DEFAULT_R
     const res = await fetch(url, {
       headers: HEADERS,
       next: { revalidate: 3600 },
+      signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
     });
     if (!res.ok) return null;
     const md = await res.text();
@@ -121,6 +125,7 @@ export async function fetchUsage(species: string, ruleset: RulesetId = DEFAULT_R
           const baseRes = await fetch(`${BASE}/${format}/${encodeURIComponent(base)}`, {
             headers: HEADERS,
             next: { revalidate: 3600 },
+            signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
           });
           if (baseRes.ok) {
             const baseMd = await baseRes.text();

@@ -56,11 +56,30 @@ export default function TeamBuilderPanel({
     setProgress(['starting']);
     try {
       let body: Record<string, unknown> = { prompt, team, regulation: ruleset };
+      let retries = 0;
       for (let i = 0; i < 60; i++) {
-        const r = await aiFetch('/api/build-team', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-        const data = await readJson<StepResponse>(r);
+        let r: Response;
+        let data: StepResponse & { error?: string };
+        try {
+          r = await aiFetch('/api/build-team', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+          data = await readJson<StepResponse>(r);
+        } catch (err) {
+          // Network failure mid-build: treat like a platform error below.
+          r = new Response(null, { status: 599 });
+          data = { state: null, progress: '', done: null, error: (err as Error).message };
+        }
         if (cancelled.current) return;
+        // A round the platform killed (function timeout page, 502/504, dropped connection) is safe to
+        // redo: continuing rounds are idempotent and never re-charged, and the first round is only
+        // charged once the server actually answers. Retry twice before giving up.
+        const platformFailure = r.status >= 500 || r.status === 599;
+        if (platformFailure && retries < 2) {
+          retries += 1;
+          setProgress((p) => [...p.filter((x) => x !== 'starting'), `round timed out, retrying (${retries}/2)`].slice(-4));
+          continue;
+        }
         if (!r.ok) { setError(data.error ?? 'Team build failed.'); return; }
+        retries = 0;
         setProgress((p) => [...p.filter((x) => x !== 'starting'), data.progress ?? 'thinking'].slice(-4));
         if (data.done) {
           onBuilt(data.done);

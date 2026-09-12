@@ -127,6 +127,25 @@ function scrub(text: string, apiKey: string): string {
   return apiKey && text.includes(apiKey) ? text.split(apiKey).join('[key]') : text;
 }
 
+/**
+ * Hard cap on one model call. Serverless hosts kill the whole request at their own limit (60 s on
+ * Vercel Hobby) and answer with an HTML timeout page; returning a typed error before that lets the
+ * client retry the round with the same state instead of failing the build.
+ */
+export const LLM_TIMEOUT_MS = 40_000;
+
+async function timedFetch(url: string, init: RequestInit, provider: ProviderId): Promise<Response> {
+  try {
+    return await fetch(url, { ...init, signal: AbortSignal.timeout(LLM_TIMEOUT_MS) });
+  } catch (e) {
+    const name = (e as { name?: string })?.name;
+    if (name === 'TimeoutError' || name === 'AbortError') {
+      throw new LlmError(`The model took longer than ${LLM_TIMEOUT_MS / 1000}s to answer. Retry the request.`, 504, provider);
+    }
+    throw e;
+  }
+}
+
 // ─── Schema conversion (Gemini Type form → JSON Schema) ─────────────────────────
 
 type GeminiSchema = {
@@ -172,7 +191,7 @@ function nextCallId(): string {
 // ─── Gemini ───────────────────────────────────────────────────────────────────
 
 function geminiClient(cred: LlmCredential): LlmClient {
-  const ai = new GoogleGenAI({ apiKey: cred.apiKey });
+  const ai = new GoogleGenAI({ apiKey: cred.apiKey, httpOptions: { timeout: LLM_TIMEOUT_MS } });
   const model = cred.model || PROVIDERS.gemini.defaultModel;
   return {
     provider: 'gemini',
@@ -271,7 +290,7 @@ function openAiCompatibleClient(cred: LlmCredential & { provider: 'openai' | 'op
       }
       if (opts.maxTokens) body.max_completion_tokens = opts.maxTokens;
 
-      const res = await fetch(`${base}/chat/completions`, { method: 'POST', headers, body: JSON.stringify(body) });
+      const res = await timedFetch(`${base}/chat/completions`, { method: 'POST', headers, body: JSON.stringify(body) }, cred.provider);
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
         const msg = json?.error?.message ?? json?.error ?? `HTTP ${res.status}`;
@@ -325,7 +344,7 @@ function anthropicClient(cred: LlmCredential): LlmClient {
       } else if (opts.tools?.length) {
         body.tools = opts.tools.map((t) => ({ name: t.name, description: t.description ?? '', input_schema: toJsonSchema(t.parameters ?? { type: 'OBJECT', properties: {} }) }));
       }
-      const res = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers, body: JSON.stringify(body) });
+      const res = await timedFetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers, body: JSON.stringify(body) }, 'anthropic');
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
         const msg = json?.error?.message ?? `HTTP ${res.status}`;

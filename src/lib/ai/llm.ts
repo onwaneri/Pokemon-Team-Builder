@@ -271,7 +271,7 @@ function openAiCompatibleClient(cred: LlmCredential & { provider: 'openai' | 'op
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     Authorization: `Bearer ${cred.apiKey}`,
-    ...(cred.provider === 'openrouter' ? { 'HTTP-Referer': 'https://vgc-champions-tool.local', 'X-Title': 'VGC Champions Tool' } : {}),
+    ...(cred.provider === 'openrouter' ? { 'HTTP-Referer': 'https://vgcforge.com', 'X-Title': 'Forge' } : {}),
   };
   return {
     provider: cred.provider,

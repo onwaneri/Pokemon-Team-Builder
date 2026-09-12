@@ -29,7 +29,7 @@ Ground truth for mechanics lives in two companion documents:
 | Backend | Next.js route handlers, Node runtime, serverless |
 | Calc engine | Vendored `@smogon/calc` master build, Champions as generation 0 (`vendor/smogon-calc`) |
 | Dex data | The vendored calc dataset; Reg M-C additions and learnsets grafted from `@pkmn/dex` |
-| Usage data | Pikalytics AI endpoint, fetched live, cached in-process for one hour |
+| Usage data | Pikalytics AI endpoint, fetched live, cached in two tiers (see Caching) |
 | Auth | Firebase Auth: Google popup and email/password. Phone sign-in was removed. |
 | Database | Firestore, project `pokemon-vgc-tool` |
 | LLM | Provider-neutral client (`src/lib/ai/llm.ts`) over OpenAI, Gemini, Anthropic, OpenRouter |
@@ -39,12 +39,13 @@ Ground truth for mechanics lives in two companion documents:
 
 ## Regulations
 
-Two regulations are registered in `src/lib/rulesets/index.ts`. The default is Reg M-B.
+Two regulations are registered in `src/lib/rulesets/index.ts`. The default is Reg M-C, the
+regulation currently in season.
 
 | Id | Label | Window | Usage format |
 |---|---|---|---|
 | `reg-m-b` | Regulation M-B | through 2026-09-08 | `gen9championsvgc2026regmb` |
-| `reg-m-c` | Regulation M-C | 2026-09-09 to 2026-12-02 | `gen9championsvgc2026regmc`, falling back to the M-B format until Pikalytics publishes M-C |
+| `reg-m-c` | Regulation M-C | 2026-09-09 to 2026-12-02 | `gen9championsvgc2026regmc`, with M-B as the per-species fallback for spreads |
 
 The vendored gen-0 dex *is* the Reg M-B pool, so the M-B delta is empty. Reg M-C adds 36 usable
 Pokémon (31 dex names), 12 held items plus the Mega Stones the new Megas need, and the signature
@@ -78,6 +79,11 @@ Every assistant request is assembled from three layers. None of them is loaded f
 3. **Regulation, usage, and screen (per request).** The active ruleset's notes, live Pikalytics
    usage via `lookupUsage`, and a serialized snapshot of what is on screen (team, calc state,
    speed-tier state) so the model edits what the user is actually looking at.
+
+Whether a set covers the metagame is also a tool answer, not a judgement: `threatMatrix`
+(`src/lib/calc/threats.ts`) calcs one set both ways against the top of the live rankings and hands
+back a per-opponent verdict plus a prose summary. Chat and the team builder are told to call it
+before any claim about what something beats, walls, or loses to, and to cite what it returned.
 
 Standing instructions to the model: never estimate numbers, call the engine, flag speed ties,
 validate legality before proposing anything, respect the 66-SP budget, and account for existing
@@ -120,26 +126,50 @@ Visitors choose a provider; the server chooses the model per job.
 - `src/lib/calc/sp.ts` documents the stat formula (HP = base + SP + 75; other =
   floor(nature × (base + SP + 20))) and clamps every SP input to the budget.
 - `src/lib/data/usage.ts` fetches `https://www.pikalytics.com/ai/pokedex/{format}/{pokemon}`
-  as markdown and parses it. A fetched page that parses to nothing is treated as parser drift
-  and returns null rather than empty data. Unpublished formats are re-probed every five
-  minutes. Upstream calls time out at ten seconds.
+  as markdown and parses it. Out of each species page: headline usage, win rate and W-L(-T)
+  record; common moves, items and abilities; the most common teammates (co-occurrence, the
+  evidence for synergy claims); the defensive type-matchup chart with Pikalytics' ability caveat;
+  the FAQ's top spread; and up to ten featured tournament teams, each carrying the focal set *and*
+  the full six-Pokémon composition it was played on. A fetched page that parses to nothing is
+  treated as parser drift and returns null rather than empty data. Unpublished formats are
+  re-probed every five minutes. Upstream calls time out at ten seconds.
+- **Predecessor-format spread fallback.** The FAQ spread is the one field Pikalytics leaves empty
+  on a newly launched regulation, and under Mega/forme names. `fetchUsage` retries that field only
+  — first the base species in the current format, then the predecessor format — and records where
+  a borrowed spread came from in `topSpreadSource`, so `lookupUsage` can tell the model to call it
+  the previous regulation's spread rather than this one's. A measured spread always beats a
+  borrowed one.
+- `src/lib/calc/threats.ts` builds the threat matrix: it rebuilds each of the top-ranked opponents
+  from their own usage data and runs `calcDamage` in both directions, capped at 30 opponents and
+  four moves a side. Every number comes from the engine; KO tiers are arithmetic over the engine's
+  own rolls, and "OHKOes" and "rolls to OHKO" stay distinct. It declares and executes the
+  `threatMatrix` tool itself, so `lib/calc` never imports `lib/ai`.
+- `src/lib/showdown/replayAnalysis.ts` parses Showdown battle logs into deterministic facts — team
+  preview, what was brought, leads, archetype markers, result — and aggregates a player's recent
+  replays in one format. No model is involved. One format id per call, at most 25 replays, and a
+  log that does not yield the facts it needs is excluded and reported rather than counted.
 - `src/lib/data/learnsets.ts` is a Gen 9 graft (Champions publishes no learnset table). Verdicts
   are three-state; a move is rejected only with positive evidence, so Champions-only signatures
   are never blocked.
 - `src/lib/ai/tools.ts` holds the shared tool declarations (`calcDamage`, `lookupUsage`,
-  `compareSpeed`) and the legality gate every AI entry point uses. A set that is illegal for
-  chat is illegal for the team builder and compare sets too.
+  `compareSpeed`, and `threatMatrix` re-exported from `calc/threats.ts`) and the legality gate
+  every AI entry point uses. A set that is illegal for chat is illegal for the team builder and
+  compare sets too. `executeSharedTool` dispatches all four; chat and the team builder declare all
+  four, while `/api/optimize-sp` deliberately declares only `calcDamage` (its loop is a bounded SP
+  search, not research).
 
 ---
 
 ## Persistence
 
-Firestore holds exactly two things. Everything else (dex, usage, chat history) is computed or
-fetched per request.
+Firestore holds three things: the team library, the free-tier counter, and the persistent cache.
+Everything else (dex, chat history) is computed or fetched per request; nothing in the cache is
+authoritative, since every entry is derived data that can be recomputed.
 
 ```
 users/{uid}/teams/{teamId}     SavedTeam + ownerUid. Owner-only read/write.
 aiQuota/{identityHash}         { used: int }. Server-only via REST; denied to clients.
+cache/{namespace}/entries/{h}  Cache payload + TTL metadata. Server-only via REST; denied to clients.
 ```
 
 `SavedTeam` (`src/lib/library/types.ts`): `id`, `name`, `team` (six slots, null or `TeamMon`),
@@ -154,6 +184,36 @@ to the client. Keep `isValidMon` cheap.
 
 Guests use a localStorage adapter with the same async `TeamStore` interface. Chat history is
 kept in React state for the session and is not persisted.
+
+---
+
+## Caching tiers
+
+`src/lib/cache/persistent.ts` is the one cache every server module uses. L1 is an in-process `Map`
+(sub-millisecond, private to a lambda instance, gone on cold start); L2 is the Firestore `cache`
+collection written as the service account, so a value survives cold starts, is shared across
+instances, and outlives a deploy. A read checks L1, then L2, then the loader. Without
+`FIREBASE_ADMIN_*` there is no L2 and the whole thing degrades to L1-only — still single-flight,
+TTL and negative caching, but per-process and gone on restart.
+
+Every key carries a namespace and a **schema version**. The version is part of both the L1 key and
+the L2 document id, so bumping it when a parsed shape or a derived answer changes strands every old
+entry instantly; stale-shaped JSON can never reach newly typed code. Two policies cover the call
+sites:
+
+| Policy | Lifetime | Used by |
+|---|---|---|
+| `LIVE_DATA` | fresh 6h, stale-servable 18h, negatives 5 min | `usage.ts`: species pages and format landing pages |
+| `DETERMINISTIC` | kept until the version moves, keyed by a content hash of every input | `threats.ts` matrices, `replayAnalysis.ts` parsed replays |
+
+Negative results get their own short lifetime, which is how an unpublished regulation, a 404, or a
+parse failure is re-probed in minutes rather than held for the success TTL. Transport failures are
+not cached at all. A `DETERMINISTIC` key must contain everything the answer depends on — for a
+threat matrix that is the resolved focal set, the ruleset, the opponent count, and the resolved
+usage snapshot the opponents were built from — because anything left out is served stale forever
+rather than missing. Replay aggregates are the one entry kept out of L2 (`l1Only`): they are keyed
+by a Showdown username, and the shared tier is for format-wide data only. `src/lib/cache/admin.ts`
+lists, summarizes, and purges L2 from a script; it is not for the request path.
 
 ---
 
@@ -223,8 +283,9 @@ server-side. A build is typically 5–15 rounds, hard-capped at 40.
   roles are inferred when a key is connected.
 - **Export** (`src/lib/showdown/export.ts`): one-click Showdown paste from the current team.
 - **Showdown API** (`src/lib/showdown/psApi.ts`, server-only for CORS): profile ratings, replay
-  search, public team search, single team fetch, and PokePaste creation. No Showdown password is
-  ever requested or stored.
+  search, public team search, single team fetch, and PokePaste creation. Replay *logs* are read by
+  `replayAnalysis.ts`, which shares this module's User-Agent and its replay search. No Showdown
+  password is ever requested or stored, and only public replays are readable.
 
 ---
 
@@ -243,11 +304,13 @@ All routes run on the Node runtime because the calc dataset is 2.3 MB of CommonJ
 | `POST /api/team-blurb` | 2–3 sentence team overview | ambient, empty fallback |
 | `POST /api/import` | Parse and validate a paste, infer roles | ambient roles |
 | `POST /api/calc` | Damage calc for the UI | none |
+| `POST /api/threats` | Threat matrix for one set against the live rankings | none |
 | `GET /api/learnset` | Learnable vs unverified moves for a species | none |
 | `GET /api/usage` | Pikalytics usage for a species | none |
 | `GET /api/ruleset` | Active ruleset and usage fallback status | none |
 | `GET/POST/DELETE /api/ai-key` | Inspect, connect, or remove a key | none |
 | `GET /api/showdown/profile`, `/replays`, `/teams`, `/team`; `POST /api/showdown/share` | Showdown integration | none |
+| `GET /api/showdown/replay-analysis` | Bring rates, leads, record and matchup splits counted out of a player's replay logs | none |
 
 ---
 
@@ -265,13 +328,32 @@ Kept here so the history is not lost and so nobody re-derives it.
 
 - Firestore collections for regulations, species, moves, abilities, items, usage snapshots,
   tournament sets, and chat sessions. Replaced by the vendored dataset, live Pikalytics, and
-  per-session chat state.
+  per-session chat state. (Usage snapshots came back as cache entries rather than as a data
+  model — see the reversal note below.)
 - Claude API as the only model. Replaced by the provider-neutral client and BYOK.
 - Google OAuth as the only sign-in. Email/password was added; phone sign-in was added and removed.
 - Automatic benchmark inference on import, and benchmark re-evaluation notifications when usage
   data updates.
-- Threat table view, diff view as a separate panel (proposals are inline cards instead), and the
-  regulation-scoped Mega overlay collection.
-- Pikalytics snapshot caching in Firestore, Limitless tournament sets, Pokémon Home stats.
-- Still open: lead pair optimizer, role compression detection, weakness/resistance matrix,
-  reverse damage calc as a first-class view, Protect PP tracker, persisted chat history.
+- Diff view as a separate panel (proposals are inline cards instead) and the regulation-scoped
+  Mega overlay collection.
+- Limitless tournament sets, Pokémon Home stats.
+- Still open:
+  - Lead pair optimizer. Lead-pair win rates from real games now exist
+    (`GET /api/showdown/replay-analysis` counts them out of battle logs), but nothing turns them
+    into a recommendation, so the optimizer itself is still unbuilt.
+  - Team-wide weakness/resistance matrix. Per-species defensive type matchups now arrive with
+    `lookupUsage`, and the threat matrix covers the damage side, but nothing lays the six out as
+    one type chart.
+  - Role compression detection, reverse damage calc as a first-class view, Protect PP tracker,
+    persisted chat history.
+
+**Reversed — dropped, then built after all:**
+
+- *Threat table.* Listed here as dropped. The matrix behind it is now built and is engine-backed:
+  `src/lib/calc/threats.ts`, `POST /api/threats`, and the `threatMatrix` tool. Only the dedicated
+  view is still missing; the assistant reads the matrix and cites it in prose instead.
+- *Pikalytics snapshot caching in Firestore.* Dropped so that Firestore would not become a data
+  warehouse. It came back in a narrower form: the L2 tier of the shared cache (see **Caching
+  tiers**) stores derived payloads under a TTL and a schema version in the `cache` collection.
+  Nothing there is authoritative, nothing is queried, and every entry can be thrown away and
+  recomputed — which is what kept the original objection from applying.

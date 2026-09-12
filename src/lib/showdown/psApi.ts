@@ -12,10 +12,14 @@
  *
  * We never ask for or store a Showdown account password. The `password` here is the per-team
  * share secret embedded in psim.us/t/<id>-<password> links, which the owner chose to share.
+ *
+ * Replay *logs* are read by `./replayAnalysis.ts`, which shares this module's User-Agent and
+ * uses `fetchRecentReplays` to pick which replays to read.
  */
 import { RULESET_IDS, RULESETS } from '@/lib/rulesets';
 
-const USER_AGENT = 'VGC-Champions-Tool/1.0';
+/** Sent on every Showdown/PokePaste request, here and in ./replayAnalysis.ts. */
+export const PS_USER_AGENT = 'VGC-Champions-Tool/1.0';
 const CHAMPIONS_PREFIX = 'gen9champions';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -108,7 +112,7 @@ async function fetchText(url: string, init?: RequestInit): Promise<{ status: num
   try {
     res = await fetch(url, {
       ...init,
-      headers: { 'User-Agent': USER_AGENT, Accept: 'application/json, text/plain, */*', ...(init?.headers ?? {}) },
+      headers: { 'User-Agent': PS_USER_AGENT, Accept: 'application/json, text/plain, */*', ...(init?.headers ?? {}) },
       cache: 'no-store',
       signal: AbortSignal.timeout(12_000),
     });
@@ -304,7 +308,7 @@ export async function createPokePaste(input: { paste: string; title?: string; au
   try {
     res = await fetch('https://pokepast.es/create', {
       method: 'POST',
-      headers: { 'User-Agent': USER_AGENT, 'Content-Type': 'application/x-www-form-urlencoded' },
+      headers: { 'User-Agent': PS_USER_AGENT, 'Content-Type': 'application/x-www-form-urlencoded' },
       body: form.toString(),
       redirect: 'manual',
       cache: 'no-store',

@@ -8,6 +8,10 @@
  * entries. Legality is always asked per ruleset: a Reg M-C addition is "in the dex" but not legal
  * in Reg M-B.
  *
+ * The vendored gen-0 move table is also incomplete for 84 entries (no type and/or no category);
+ * `repairedMoves` refills them from @pkmn/dex so that accessors, the move pickers, and the calc all
+ * see one corrected view. Without it 11 damaging moves silently score 0 damage.
+ *
  * Server-only (pulls in the 2.3M calc dataset); never import into client code.
  */
 import { SPECIES, MOVES, ITEMS, ABILITIES, NATURES } from '@smogon/calc';
@@ -32,6 +36,10 @@ interface RawMove {
   makesContact?: boolean;
   priority?: number;
   secondaries?: boolean;
+  /** Doubles spread target (e.g. "allAdjacentFoes"), which drives the 0.75x spread modifier. */
+  target?: string;
+  /** Fixed hit count for multi-hit moves (Gear Grind 2, Triple Dive 3). */
+  multihit?: number | number[];
 }
 
 // Species & moves are stored fully at gen 0 (the Champions dex). Items & abilities are stored as
@@ -97,6 +105,49 @@ for (const id of RULESET_IDS) {
       ...(m.secondaries?.length ? { secondaries: true } : {}),
     };
   }
+}
+
+// ─── Repairing incomplete gen-0 move entries ───────────────────────────────────
+
+/**
+ * Moves the vendored Champions table left without a type or a category, refilled from @pkmn/dex.
+ *
+ * `vendor/smogon-calc/data/moves.js` builds the gen-0 table as
+ * `extend(true, {}, SV[name], CHAMPIONS_PATCH)`. A move that Champions rebalanced but that has no
+ * entry of its own in the SV delta table therefore keeps **only** the patched base power — its
+ * type, category, target and flags are dropped. The same file then skips its `category ??= 'Status'`
+ * default for gen 0, so both fields stay `undefined`, and `calculate()` scores every one of the 11
+ * affected damaging moves (Astral Barrage, Bolt Beak, Blood Moon, Triple Dive, …) as **0 damage**
+ * against every target. 72 further entries lose only their category; they are all status moves, so
+ * no damage was wrong, but they rendered with no category badge in the move pickers.
+ *
+ * We refill the missing fields from @pkmn/dex and keep the gen-0 base power, which is the
+ * Champions-specific value and must win over the mainline one (Astral Barrage is 110 here, 120 in
+ * Gen 9). Everything downstream — `getMove`, `moveInfo`, and the engine via `moveOverrides` — reads
+ * through this layer, so the repair happens once.
+ */
+const repairedMoves: Record<string, RawMove> = {};
+for (const [name, raw] of Object.entries(moveMap)) {
+  if (raw.type && raw.category) continue;
+  const d = Dex.moves.get(name);
+  if (!d?.exists) {
+    console.warn(`[champions] gen-0 move ${name} is missing type/category and @pkmn/dex cannot repair it.`);
+    continue;
+  }
+  repairedMoves[name] = {
+    ...raw,
+    // Champions base power is authoritative; only absent fields are taken from the mainline dex.
+    // `?? ` not `|| ` — a genuine 0 (status moves, and variable-power moves like Low Kick) must
+    // survive, but Metal Claw's entry is literally `{isSlicing: true}` with no bp at all, which
+    // would otherwise make it a 0-damage move.
+    bp: raw.bp ?? d.basePower,
+    type: raw.type || d.type,
+    category: raw.category || (d.category as RawMove['category']),
+    ...(raw.makesContact || d.flags?.contact ? { makesContact: true } : {}),
+    ...(raw.priority || d.priority ? { priority: raw.priority || d.priority } : {}),
+    ...(raw.target || d.target ? { target: raw.target || d.target } : {}),
+    ...(raw.multihit || d.multihit ? { multihit: raw.multihit ?? (d.multihit as RawMove['multihit']) } : {}),
+  };
 }
 
 // ─── Applying a ruleset delta to the base pools ────────────────────────────────
@@ -224,18 +275,15 @@ export function listMoves(reg: RulesetId = DEFAULT_RULESET): string[] {
   return [...movePool(reg)].sort();
 }
 export function getMove(name: string): ChampMove | null {
-  const raw = moveMap[name] ?? overlayMoves[name];
+  // Repaired entries shadow the raw gen-0 ones (see `repairedMoves`).
+  const raw = repairedMoves[name] ?? moveMap[name] ?? overlayMoves[name];
   if (!raw) return null;
   return { name, basePower: raw.bp, type: raw.type, category: raw.category, makesContact: !!raw.makesContact, priority: raw.priority ?? 0, overlay: !(name in moveMap) };
 }
 export function isLegalMove(name: string, reg: RulesetId = DEFAULT_RULESET): boolean {
   return movePool(reg).has(name);
 }
-/** Engine override payload for a move the gen-0 table lacks; null for native moves. */
-export function moveOverrides(name: string): Record<string, unknown> | null {
-  if (moveMap[name]) return null;
-  const raw = overlayMoves[name];
-  if (!raw) return null;
+function overridePayload(name: string, raw: RawMove): Record<string, unknown> {
   return {
     kind: 'Move',
     id: name.toLowerCase().replace(/[^a-z0-9]/g, ''),
@@ -246,7 +294,26 @@ export function moveOverrides(name: string): Record<string, unknown> | null {
     flags: raw.makesContact ? { contact: 1 } : {},
     ...(raw.priority ? { priority: raw.priority } : {}),
     ...(raw.secondaries ? { secondaries: true } : {}),
+    ...(raw.target ? { target: raw.target } : {}),
+    ...(raw.multihit ? { multihit: raw.multihit } : {}),
   };
+}
+
+/**
+ * Engine override payload for a move the gen-0 table cannot be used for as-is; null for entries
+ * that are already complete. Two cases: a move a later regulation added (not in the gen-0 table at
+ * all), and a gen-0 entry the vendored build left without a type or category (see `repairedMoves`
+ * — those DO resolve through `gen.moves.get`, so callers must ask here rather than testing
+ * presence). The calc deep-merges the payload over its own lookup, so a partial entry is completed
+ * rather than replaced.
+ */
+export function moveOverrides(name: string): Record<string, unknown> | null {
+  const repaired = repairedMoves[name];
+  if (repaired) return overridePayload(name, repaired);
+  if (moveMap[name]) return null;
+  const raw = overlayMoves[name];
+  if (!raw) return null;
+  return overridePayload(name, raw);
 }
 
 // ---- Items / Abilities / Natures ----
@@ -283,7 +350,7 @@ export interface FormLists {
   /** species name → whether it's a Mega forme, for the Mega badge. */
   speciesIsMega: Record<string, boolean>;
   /** move name → type, category, base power, and a one-line description, for the move pickers. */
-  moveInfo: Record<string, { type: string; category: 'Physical' | 'Special' | 'Status'; bp: number; desc: string }>;
+  moveInfo: Record<string, { type: string; category: 'Physical' | 'Special' | 'Status' | ''; bp: number; desc: string }>;
   /** item name → one-line description. */
   itemDesc: Record<string, string>;
   /** ability name → one-line description. */
@@ -347,7 +414,9 @@ export function formLists(reg: RulesetId = DEFAULT_RULESET): FormLists {
   const moveInfo: FormLists['moveInfo'] = {};
   for (const m of moves) {
     const mv = getMove(m);
-    moveInfo[m] = { type: mv?.type ?? '', category: mv?.category ?? 'Status', bp: mv?.basePower ?? 0, desc: dexText('moves', m) };
+    // `category` is '' only if the gen-0 entry was incomplete AND @pkmn/dex could not repair it.
+    // It used to default to 'Status', which mislabelled every damaging move in that state.
+    moveInfo[m] = { type: mv?.type ?? '', category: mv?.category ?? '', bp: mv?.basePower ?? 0, desc: dexText('moves', m) };
   }
   const items = listItems(reg);
   const abilities = listAbilities();

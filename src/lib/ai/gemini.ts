@@ -39,6 +39,7 @@ import {
   calcDamageDeclaration,
   lookupUsageDeclaration,
   compareSpeedDeclaration,
+  threatMatrixDeclaration,
   spSchema,
   validateProposal,
   buildSetFromUsage,
@@ -176,6 +177,14 @@ weather). Always surface these flags even if not asked.
 
 When Multiscale is relevant, run two calcs: once at full HP (Multiscale active) and once with 1 HP
 of chip removed (Multiscale broken).
+
+═══ METAGAME COVERAGE ═══
+
+Whether a set or a team covers the metagame is a question for threatMatrix, not for judgement. Call
+it before saying what something beats, walls, checks, loses to, or is "covered" against — for a
+team, call it for the members the claim rests on. It calcs the set both ways against the top of the
+live rankings in one call. Cite what it found: name the opponents and quote its KO labels and
+ranges. Never carry a coverage claim it did not support, and say plainly which holes it showed.
 
 ═══ CHANGING THE SCREEN (DIRECT ACTIONS) ═══
 
@@ -862,6 +871,7 @@ export async function runChampionsChat(
       calcDamageDeclaration,
       lookupUsageDeclaration,
       compareSpeedDeclaration,
+      threatMatrixDeclaration,
       navigateToDeclaration,
       setupDamageCalcDeclaration,
       updateCalcDeclaration,

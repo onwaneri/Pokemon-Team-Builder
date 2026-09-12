@@ -3,8 +3,11 @@
  * Source: https://www.serebii.net/pokemonchampions/rankedbattle/regulationm-c.shtml
  *
  * Delta over Reg M-B: 36 newly usable Pokémon (31 dex names — Toxtricity and Indeedee count both
- * formes) and 12 newly legal items, plus the Mega Stones the new Megas need. Pikalytics had not
- * published M-C usage at the time of writing, so M-B is listed as the usage fallback.
+ * formes) and 12 newly legal items, plus the Mega Stones the new Megas need. Pikalytics now publishes M-C
+ * rankings, per-species usage, and teammate percentages, so M-C is the default ruleset. It still
+ * has no spread data (that FAQ answers "No EV spread or nature data available"), so M-B stays the
+ * usage fallback and fetchUsage borrows the spread from it per species, labelled via
+ * topSpreadSource. M-B in turn serves no teammate percentages.
  */
 import type { Ruleset } from './types';
 

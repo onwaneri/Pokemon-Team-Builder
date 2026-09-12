@@ -17,7 +17,7 @@ export const RULESETS: Record<RulesetId, Ruleset> = {
 /** Selector order (newest last). */
 export const RULESET_IDS: RulesetId[] = ['reg-m-b', 'reg-m-c'];
 
-export const DEFAULT_RULESET: RulesetId = 'reg-m-b';
+export const DEFAULT_RULESET: RulesetId = 'reg-m-c';
 
 export function isRulesetId(v: unknown): v is RulesetId {
   return typeof v === 'string' && v in RULESETS;

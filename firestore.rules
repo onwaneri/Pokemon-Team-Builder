@@ -11,7 +11,20 @@ rules_version = '2';
 // Collection: users/{uid}/teams
 // Document ID: the SavedTeam.id (a client-generated UUID); must equal `id`.
 // Written with setDoc (full replace) by the owner only; read with getDoc /
-// getDocs on the subcollection. No other collections exist.
+// getDocs on the subcollection. This is the only collection any client ever
+// touches, and the only one these rules describe.
+//
+// Two further collections exist, both written exclusively by the server as the
+// service account through the Firestore REST API (src/lib/firebase/server.ts):
+//   aiQuota/{identityHash}          free-tier request counter (src/lib/ai/quota.ts)
+//   cache/{namespace}/entries/{h}   persistent server cache (src/lib/cache/)
+// Service-account calls bypass these rules entirely, so neither needs a rule of
+// its own; both are unreachable from any client through the deny-all at the
+// bottom of this file, which is deliberate and must stay that way. Neither holds
+// user content: a quota document is a count under a hash, and a cache document is
+// derived format-wide data (usage pages, computed matrices) that can be deleted
+// and recomputed at any time.
+//
 // Fields:
 //   - id: string (required, == document id, ≤ 64) - immutable
 //   - ownerUid: string (required, == request.auth.uid) - immutable

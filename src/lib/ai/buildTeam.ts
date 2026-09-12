@@ -4,7 +4,8 @@
  * Takes a loose description ("rain with a Trick Room mode", "something around Garchomp and
  * Incineroar") plus whatever the user already placed, and fills the remaining slots. The model
  * researches with the shared engine tools (lookupUsage for real sets and spreads, compareSpeed
- * for tiers, calcDamage for key benchmarks) and finishes by calling `submitTeam`. Every submitted
+ * for tiers, calcDamage for key benchmarks, threatMatrix to check the build against the live
+ * rankings before submitting) and finishes by calling `submitTeam`. Every submitted
  * set goes through the same legality gate as chat proposals; errors are returned to the model so
  * it corrects and resubmits. Slots the user already filled are locked — the server keeps the
  * originals no matter what the model returns.
@@ -30,6 +31,7 @@ import {
   calcDamageDeclaration,
   lookupUsageDeclaration,
   compareSpeedDeclaration,
+  threatMatrixDeclaration,
   spSchema,
   validateProposal,
   buildSetFromUsage,
@@ -158,11 +160,15 @@ ${openSlots.join(', ')}
    rankings). Respect any species, style, or constraint the user names.
 2. Call lookupUsage for EVERY candidate you are considering IN ONE TURN (issue all the calls at once —
    they run in parallel), then base each set on real data: featured sets, top moves/items/abilities, and
-   the topSpread for SP. Adjust only with a concrete reason. Aim to finish in 3–4 turns total: research,
-   one or two checks, submit.
+   the topSpread for SP. Adjust only with a concrete reason. Aim to finish in 4–5 turns total: research,
+   one or two checks, the coverage check in step 4, submit.
 3. Use compareSpeed to confirm any speed relationship you rely on (e.g. "outspeeds base 100s"), and
    calcDamage for one or two key benchmarks if a spread decision hinges on them.
-4. Call submitTeam once with every open slot filled. Each set needs 4 moves and an SP spread that sums to
+4. Before submitting, call threatMatrix on the sets the team's offence rests on to check the build
+   actually covers the metagame — it calcs a set both ways against the top of the live rankings in
+   one call. Fix a hole it exposes (a move, an item, a spread, a different Pokémon) or name it in
+   the summary. Claim coverage only for what it showed you.
+5. Call submitTeam once with every open slot filled. Each set needs 4 moves and an SP spread that sums to
    at most 66. Give each Pokémon a one-sentence role and write a 2–3 sentence summary.
 Do not write a long essay; the summary field is the only prose the user sees.`;
 }
@@ -228,7 +234,7 @@ async function verifySubmission(args: SubmitTeamArgs, slots: (TeamMon | null)[],
   return { errors, built, summary: (args.summary ?? '').trim() };
 }
 
-const DECLARATIONS = [lookupUsageDeclaration, compareSpeedDeclaration, calcDamageDeclaration, submitTeamDeclaration];
+const DECLARATIONS = [lookupUsageDeclaration, compareSpeedDeclaration, calcDamageDeclaration, threatMatrixDeclaration, submitTeamDeclaration];
 
 /** Prepare a build: locks the filled slots and writes the system prompt. Runs no model call. */
 export async function startBuild(input: BuildTeamInput): Promise<BuildState> {

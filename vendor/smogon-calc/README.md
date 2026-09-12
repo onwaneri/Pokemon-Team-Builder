@@ -22,6 +22,45 @@ resistedKnockOffDamage = !!(item && item.megaStone && ...)   // guarded
 ```
 Reapply this guard after rebuilding (or upstream the fix).
 
+## Known defect in the gen-0 move table (worked around in app code, not patched here)
+
+`data/moves.js` builds the Champions table as:
+```js
+var CHAMPIONS = extend(true, {}, Object.fromEntries(CHAMPIONS_LIST.map(m => [m, SV[m]])), CHAMPIONS_PATCH);
+```
+`SV` is a per-generation **delta** table, so `SV[name]` is `undefined` for any move that Gen 9 did
+not itself change. For those moves the Champions entry ends up holding only whatever
+`CHAMPIONS_PATCH` supplies — usually just a rebalanced `bp` — and the move's `type`, `category`,
+`target` and flags are lost. `MOVES_BY_ID` builds each generation independently with no inheritance,
+and the `Move` constructor's `category ??= 'Status'` default is gated on `gen >= 4`, so at gen 0
+both fields simply stay `undefined`.
+
+Effect: **84 of 513 gen-0 move entries are incomplete.** 72 lose only their category (all of them are
+status moves, so no damage was affected). The remaining 12 lose type *and* category, and
+`calculate()` returns **0 damage for all of them against every target** — silently, with no error:
+
+> Anchor Shot, Astral Barrage, Blood Moon, Bolt Beak, Dragon Hammer, Fishious Rend, Gear Grind,
+> Hyper Drill, Metal Claw, Revelation Dance, Snipe Shot, Triple Dive
+
+(`Metal Claw` is the worst case: its entire gen-0 entry is `{isSlicing: true}`, so it has no base
+power either.)
+
+This is **not** patched in the vendor. `src/lib/data/champions.ts` refills the missing fields from
+`@pkmn/dex` and feeds them back through the calc's own `options.overrides` merge, keeping the gen-0
+base power (which is the Champions-specific value — Astral Barrage is 110 here, 120 in Gen 9).
+Repairing in app code rather than in `data/moves.js` means there is nothing extra to reapply after a
+rebuild: if a future build fixes the table upstream, the repair layer finds nothing to repair and
+becomes a no-op on its own. Re-check `repairedMoves` after any rebuild to confirm the count drops.
+
+## Gotcha: `fullDesc(notation)` defaults to 48ths, not percent
+
+`Result.fullDesc(notation)`, `moveDesc`, `recovery` and `recoil` all render **48ths of max HP** (HP-bar
+pixels) for any `notation` other than the literal `'%'` — see `toDisplay` in `desc.js`. Passing `''`
+does not mean "no unit", it selects the 48ths branch: a 101–119% hit prints as `187-221 (48 - 57)`.
+Pass `'%'` (or no argument). This is upstream behaviour, not a defect of this build, but it
+misreported every damage description in the app until it was caught; `src/lib/calc/engine.ts`
+now pins the notation and re-derives the printed percent from `minPct`/`maxPct`.
+
 ## How to rebuild / update
 ```bash
 git clone https://github.com/smogon/damage-calc.git

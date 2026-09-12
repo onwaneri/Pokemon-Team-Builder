@@ -7,8 +7,12 @@
  *     published certificates, plus the audience/issuer/expiry claims Firebase documents).
  *   - `firestoreRest`: minimal Firestore REST access authenticated as the service account in
  *     FIREBASE_ADMIN_* (JWT bearer grant → OAuth access token, cached until shortly before expiry).
+ *     Reads (`getDoc`, `listDocs`) and writes (`setDoc`, `deleteDoc`, `incrementField`) only — no
+ *     queries, transactions, or listeners. Service-account calls bypass `firestore.rules`
+ *     entirely, so every collection reached from here is server-owned by construction.
  * Both degrade cleanly: without NEXT_PUBLIC_FIREBASE_PROJECT_ID tokens are treated as absent, and
- * without admin credentials `firestoreRest` is null (the quota store falls back to memory).
+ * without admin credentials `firestoreRest` is null (the quota store falls back to memory and the
+ * persistent cache to L1-only).
  * Server-only.
  */
 import { createHash, createPublicKey, createSign, verify as cryptoVerify, type KeyObject } from 'node:crypto';
@@ -107,11 +111,46 @@ async function accessToken(): Promise<string> {
   return json.access_token;
 }
 
+/** The subset of Firestore's JSON value union this client reads and writes. */
+export interface FirestoreValue {
+  integerValue?: string;
+  stringValue?: string;
+  booleanValue?: boolean;
+  doubleValue?: number;
+  timestampValue?: string;
+  nullValue?: null;
+}
+
+export type FirestoreFields = Record<string, FirestoreValue>;
+
+export interface FirestoreDoc {
+  /** Last segment of the document path. */
+  id: string;
+  fields: FirestoreFields;
+}
+
 export interface FirestoreRest {
   /** Read one document's fields (raw Firestore value objects) or null when absent. */
-  getDoc(path: string): Promise<Record<string, { integerValue?: string; stringValue?: string }> | null>;
+  getDoc(path: string, signal?: AbortSignal): Promise<FirestoreFields | null>;
   /** Atomically add `by` to an integer field, creating the document if needed; returns the new value. */
   incrementField(path: string, field: string, by: number): Promise<number>;
+  /**
+   * Create the document or overwrite exactly the fields given (set semantics for those fields;
+   * any field absent from `fields` is left alone, so callers that want a clean document write the
+   * whole field set every time). Firestore caps a document at roughly 1 MiB — oversized writes are
+   * rejected by the server, not by this client.
+   */
+  setDoc(path: string, fields: FirestoreFields, signal?: AbortSignal): Promise<void>;
+  /** Delete one document. Deleting a document that does not exist succeeds. */
+  deleteDoc(path: string, signal?: AbortSignal): Promise<void>;
+  /**
+   * One page of a collection's documents. `fieldMask` limits what comes back over the wire;
+   * page with `nextPageToken` until it is undefined.
+   */
+  listDocs(
+    collectionPath: string,
+    opts?: { pageSize?: number; pageToken?: string; fieldMask?: string[]; signal?: AbortSignal },
+  ): Promise<{ docs: FirestoreDoc[]; nextPageToken?: string }>;
 }
 
 export function firestoreRest(): FirestoreRest | null {
@@ -119,12 +158,48 @@ export function firestoreRest(): FirestoreRest | null {
   const base = `https://firestore.googleapis.com/v1/projects/${ADMIN.projectId}/databases/(default)/documents`;
   const fullName = (path: string) => `projects/${ADMIN.projectId}/databases/(default)/documents/${path}`;
   return {
-    async getDoc(path) {
-      const res = await fetch(`${base}/${path}`, { headers: { Authorization: `Bearer ${await accessToken()}` } });
+    async getDoc(path, signal) {
+      const res = await fetch(`${base}/${path}`, { headers: { Authorization: `Bearer ${await accessToken()}` }, ...(signal ? { signal } : {}) });
       if (res.status === 404) return null;
       if (!res.ok) throw new Error(`Firestore read failed (HTTP ${res.status}).`);
-      const json = (await res.json()) as { fields?: Record<string, { integerValue?: string; stringValue?: string }> };
+      const json = (await res.json()) as { fields?: FirestoreFields };
       return json.fields ?? {};
+    },
+    async setDoc(path, fields, signal) {
+      // updateMask pins the write to exactly the fields supplied, so the call means the same thing
+      // whether or not the document already exists.
+      const mask = Object.keys(fields).map((f) => `updateMask.fieldPaths=${encodeURIComponent(f)}`).join('&');
+      const res = await fetch(`${base}/${path}${mask ? `?${mask}` : ''}`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${await accessToken()}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fields }),
+        ...(signal ? { signal } : {}),
+      });
+      if (!res.ok) throw new Error(`Firestore write failed (HTTP ${res.status}).`);
+    },
+    async deleteDoc(path, signal) {
+      const res = await fetch(`${base}/${path}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${await accessToken()}` },
+        ...(signal ? { signal } : {}),
+      });
+      if (!res.ok && res.status !== 404) throw new Error(`Firestore delete failed (HTTP ${res.status}).`);
+    },
+    async listDocs(collectionPath, opts = {}) {
+      const params = new URLSearchParams();
+      if (opts.pageSize) params.set('pageSize', String(opts.pageSize));
+      if (opts.pageToken) params.set('pageToken', opts.pageToken);
+      for (const f of opts.fieldMask ?? []) params.append('mask.fieldPaths', f);
+      const qs = params.toString();
+      const res = await fetch(`${base}/${collectionPath}${qs ? `?${qs}` : ''}`, {
+        headers: { Authorization: `Bearer ${await accessToken()}` },
+        ...(opts.signal ? { signal: opts.signal } : {}),
+      });
+      if (res.status === 404) return { docs: [] };
+      if (!res.ok) throw new Error(`Firestore list failed (HTTP ${res.status}).`);
+      const json = (await res.json()) as { documents?: { name?: string; fields?: FirestoreFields }[]; nextPageToken?: string };
+      const docs = (json.documents ?? []).map((d) => ({ id: (d.name ?? '').split('/').pop() ?? '', fields: d.fields ?? {} }));
+      return { docs, ...(json.nextPageToken ? { nextPageToken: json.nextPageToken } : {}) };
     },
     async incrementField(path, field, by) {
       const res = await fetch(`${base}:commit`, {

@@ -3,17 +3,26 @@
  * (chat, team builder, compare sets). Keeping them here means each caller exposes the same
  * engine-backed tools and the same validation — a set that is illegal for one is illegal for all.
  *
+ * The shared surface is `calcDamage`, `lookupUsage`, `compareSpeed`, and `threatMatrix`. The last
+ * one is declared and executed in `src/lib/calc/threats.ts` and only re-exported here: this module
+ * imports that one, never the reverse, so `lib/calc` stays free of `lib/ai` (see the layering note
+ * in that file's header).
+ *
  * Server-only (calc engine + Pikalytics fetches).
  */
 import { Type, type FunctionDeclaration } from '@google/genai';
 import type { LlmClient, LlmMessage } from '@/lib/ai/llm';
 import { calcDamage, compareSpeed, type MonInput, type MoveInput, type FieldInput, type SpeedMonInput } from '@/lib/calc/engine';
-import { fetchUsage, resolveUsageFormat } from '@/lib/data/usage';
+import { fetchUsage, resolveUsageFormat, type TypeMatchup } from '@/lib/data/usage';
 import { validateLegality, legalAbilities, isLegalItem, isLegalSpecies } from '@/lib/data/champions';
 import { learnsetIssues } from '@/lib/data/learnsets';
 import { validateSp, type SpSpread } from '@/lib/calc/sp';
 import type { CalcMonSet } from '@/lib/ai/types';
 import { getRuleset, DEFAULT_RULESET, type RulesetId } from '@/lib/rulesets';
+import { threatMatrixDeclaration, executeThreatMatrix, type ThreatMatrixArgs } from '@/lib/calc/threats';
+
+// Re-exported so every AI caller assembles its tool list from this one module.
+export { threatMatrixDeclaration, type ThreatMatrixArgs };
 
 
 /** "atk:32/spe:32" style summary of an SP spread for prompts; 'none' when empty. */
@@ -73,7 +82,7 @@ export const calcDamageDeclaration: FunctionDeclaration = {
 export const lookupUsageDeclaration: FunctionDeclaration = {
   name: 'lookupUsage',
   description:
-    'Fetch Pikalytics usage data for a Pokémon in the Champions format. Returns top moves, items, and abilities by usage percentage, the most common SP spread, and featured tournament sets. Use this before proposing or placing any set so the details come from real usage, not memory.',
+    'Fetch Pikalytics usage data for a Pokémon in the Champions format. Returns top moves, items, and abilities by usage percentage, the most common teammates it shares a team with, its defensive type matchups, the most common SP spread (sometimes borrowed from the previous regulation, in which case the result says so), and featured tournament sets with the full six-Pokémon teams they were played on. Use this before proposing or placing any set, and before any claim about synergy, teammates, or what a Pokémon is weak to, so the details come from real data, not memory.',
   parameters: {
     type: Type.OBJECT,
     properties: {
@@ -192,6 +201,11 @@ export function executeCompareSpeed(args: CompareSpeedArgs): unknown {
   }
 }
 
+/** "Ice 4x, Dragon 2x" — type matchups flattened to one line each for the tool result. */
+function fmtMatchups(list: TypeMatchup[]): string | undefined {
+  return list.length ? list.map((m) => `${m.type} ${m.multiplier}x`).join(', ') : undefined;
+}
+
 export async function executeLookupUsage(args: LookupUsageArgs, ruleset: RulesetId = DEFAULT_RULESET): Promise<unknown> {
   try {
     const [data, source] = await Promise.all([fetchUsage(args.species, ruleset), resolveUsageFormat(ruleset)]);
@@ -210,26 +224,50 @@ export async function executeLookupUsage(args: LookupUsageArgs, ruleset: Ruleset
         .slice(0, 4)
         .map((e) => `${e.name} (${e.pct}%)${isLegalItem(e.name, ruleset) ? '' : ' [NOT in the legal item list — do not propose]'}`),
       topAbilities: data.abilities.slice(0, 3).map((e) => `${e.name} (${e.pct}%)`),
+      // Co-occurrence, not opinion: how often each species actually shares a team with this one.
+      commonTeammates: data.teammates.slice(0, 6).map((e) => `${e.name} (${e.pct}%)`),
       topSpread: data.topSpread,
-      featuredSets: data.sets.slice(0, 2).map((s) => ({
+      // A spread Pikalytics has not computed for this regulation yet is borrowed from the previous
+      // one; say so, the same way dataCaveat does for a whole-format fallback.
+      topSpreadCaveat: data.topSpreadSource
+        ? `This spread is from the previous format (${data.topSpreadSource}) — ${getRuleset(ruleset).short} has no spread data yet. Call it the previous regulation's spread, not the current one's.`
+        : undefined,
+      typeMatchups: data.typeMatchups
+        ? {
+            weakTo: fmtMatchups(data.typeMatchups.weakTo),
+            resists: fmtMatchups(data.typeMatchups.resists),
+            immuneTo: fmtMatchups(data.typeMatchups.immuneTo),
+            abilityNote: data.typeMatchups.abilityNote,
+          }
+        : undefined,
+      featuredSets: data.sets.slice(0, 3).map((s) => ({
         label: s.label,
+        event: s.event,
         ability: s.ability,
         item: s.item,
         nature: s.nature,
         sp: s.sp,
         moves: s.moves,
+        team: s.members.length ? s.members.join(', ') : undefined,
       })),
+      // Compositions only for the rest of the featured teams — real tournament teams built around
+      // this Pokémon, which is the evidence for synergy questions. Capped so the result stays small.
+      moreFeaturedTeams: data.sets
+        .slice(3, 8)
+        .filter((s) => s.members.length)
+        .map((s) => `${s.label}: ${s.members.join(', ')}`),
     };
   } catch (e) {
     return { error: (e as Error).message };
   }
 }
 
-/** Dispatch for the three engine/data tools every AI caller shares. Returns undefined for other names. */
+/** Dispatch for the engine/data tools every AI caller shares. Returns undefined for other names. */
 export async function executeSharedTool(name: string, args: unknown, ruleset: RulesetId = DEFAULT_RULESET): Promise<unknown | undefined> {
   if (name === 'calcDamage') return executeCalcDamage(args as CalcDamageArgs);
   if (name === 'lookupUsage') return executeLookupUsage(args as LookupUsageArgs, ruleset);
   if (name === 'compareSpeed') return executeCompareSpeed(args as CompareSpeedArgs);
+  if (name === 'threatMatrix') return executeThreatMatrix(args as ThreatMatrixArgs, ruleset);
   return undefined;
 }
 

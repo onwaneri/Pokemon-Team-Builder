@@ -7,6 +7,12 @@
  *   - Terastallization is illegal in Champions — `calcDamage` rejects any Tera input before running.
  *   - Speed ties (equal Spe) are flagged, never silently resolved.
  *   - Multiscale-at-full-HP and other assumptions are surfaced as flags for Claude to relay.
+ *   - `desc` always reports percent of max HP, and always the same percent as `minPct`/`maxPct`.
+ *     The vendored `fullDesc` defaults to 48ths for any notation other than '%' (see
+ *     `withEnginePercent`), so a CalcResult is guaranteed internally consistent: the description,
+ *     the percent fields, and `koChance` cannot disagree about whether something is a KO.
+ *   - Gen-0 move entries the vendored build left without a type or category are repaired via
+ *     `moveOverrides` before the calc runs; without that they silently score 0 damage.
  */
 import { calculate, Pokemon, Move, Field, Generations, toID } from '@smogon/calc';
 import type { GenerationNum } from '@smogon/calc';
@@ -246,6 +252,27 @@ function round1(n: number): number {
   return Math.round(n * 10) / 10;
 }
 
+/**
+ * Force the description's damage percentage to agree with this result's own `minPct`/`maxPct`.
+ *
+ * Two reasons. First, the vendored `fullDesc(notation)` renders the range in *48ths* (HP-bar
+ * pixels) for any notation other than '%': this used to be called as `fullDesc('')`, which printed
+ * a 101–119% hit as "187-221 (48 - 57)" — a line that contradicted its own "guaranteed OHKO"
+ * verdict, and that `benchmarks/evaluate.ts` shows to users as the primary detail line. Second,
+ * even with '%' the calc floors to one decimal where we round, so the two could disagree at the
+ * boundary and print a sub-100% maximum next to a possible-OHKO verdict. Rewriting the one
+ * parenthesised figure leaves the rest of the vendored string (the attacker/defender/SP prefix,
+ * the Knock Off base-power annotation, the KO verdict, recovery and recoil clauses) intact, which
+ * is why this post-processes rather than rebuilding the line from scratch.
+ */
+function withEnginePercent(desc: string, min: number, max: number, minPct: number, maxPct: number): string {
+  // Anchored on the literal damage numbers, so it cannot match a recovery/recoil percentage.
+  return desc.replace(
+    new RegExp(`${min}-${max} \\([\\d.]+ - [\\d.]+%\\)`),
+    `${min}-${max} (${minPct} - ${maxPct}%)`,
+  );
+}
+
 export function calcDamage(
   attacker: MonInput,
   defender: MonInput,
@@ -261,12 +288,13 @@ export function calcDamage(
     hits: move.hits,
     timesUsed: move.timesUsed,
   };
-  // Same override path for moves a later regulation added (see champions.ts overlay).
-  if (!gen.moves.get(toID(move.name))) {
-    const overrides = moveOverrides(move.name);
-    if (!overrides) throw new Error(`${move.name} is not a Champions move.`);
-    moveOpts.overrides = overrides;
-  }
+  // Same override path for moves a later regulation added (see champions.ts overlay) AND for the
+  // gen-0 entries the vendored build left without a type or category — those exist in `gen.moves`
+  // but calculate() scores them as 0 damage, so presence alone is not enough to trust an entry.
+  // `moveOverrides` returns a payload for both cases and null when the gen-0 entry is complete.
+  const overrides = moveOverrides(move.name);
+  if (overrides) moveOpts.overrides = overrides;
+  else if (!gen.moves.get(toID(move.name))) throw new Error(`${move.name} is not a Champions move.`);
   const mv = new Move(gen, move.name, moveOpts as unknown as ConstructorParameters<typeof Move>[2]);
   const fld = new Field({
     gameType: field?.gameType ?? 'Doubles',
@@ -291,12 +319,15 @@ export function calcDamage(
     /* some results (status moves) have no KO chance */
   }
 
+  const minPct = maxHP ? round1((100 * min) / maxHP) : 0;
+  const maxPct = maxHP ? round1((100 * max) / maxHP) : 0;
+
   let desc = '';
   try {
-    desc = result.fullDesc('');
+    desc = withEnginePercent(result.fullDesc('%'), min, max, minPct, maxPct);
   } catch {
     try {
-      desc = result.moveDesc();
+      desc = result.moveDesc('%');
     } catch {
       /* non-fatal */
     }
@@ -306,8 +337,8 @@ export function calcDamage(
     rolls,
     minDamage: min,
     maxDamage: max,
-    minPct: maxHP ? round1((100 * min) / maxHP) : 0,
-    maxPct: maxHP ? round1((100 * max) / maxHP) : 0,
+    minPct,
+    maxPct,
     defenderMaxHP: maxHP,
     koChance,
     desc,

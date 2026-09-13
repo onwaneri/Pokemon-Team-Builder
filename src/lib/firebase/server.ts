@@ -24,8 +24,8 @@ const PROJECT_ID = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || process.env.FI
 const CERT_URL = 'https://www.googleapis.com/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com';
 let certCache: { keys: Record<string, KeyObject>; expires: number } | null = null;
 
-async function googleCerts(): Promise<Record<string, KeyObject>> {
-  if (certCache && Date.now() < certCache.expires) return certCache.keys;
+async function googleCerts(force = false): Promise<Record<string, KeyObject>> {
+  if (!force && certCache && Date.now() < certCache.expires) return certCache.keys;
   const res = await fetch(CERT_URL);
   if (!res.ok) throw new Error(`Could not fetch Google certificates (HTTP ${res.status}).`);
   const pems = (await res.json()) as Record<string, string>;
@@ -53,8 +53,11 @@ export async function verifyIdToken(token: string | null | undefined): Promise<V
     const header = JSON.parse(b64urlDecode(parts[0]).toString('utf8')) as { alg?: string; kid?: string };
     const payload = JSON.parse(b64urlDecode(parts[1]).toString('utf8')) as Record<string, unknown>;
     if (header.alg !== 'RS256' || !header.kid) return null;
-    const keys = await googleCerts();
-    const key = keys[header.kid];
+    // Google rotates signing keys inside the cert set's max-age (~6 h), so a warm serverless
+    // instance can hold a set that predates the key a fresh token was signed with. One forced
+    // refetch on an unknown kid keeps sign-in working across rotations.
+    let key = (await googleCerts())[header.kid];
+    if (!key) key = (await googleCerts(true))[header.kid];
     if (!key) return null;
     const ok = cryptoVerify('RSA-SHA256', Buffer.from(`${parts[0]}.${parts[1]}`), key, b64urlDecode(parts[2]));
     if (!ok) return null;

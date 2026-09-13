@@ -28,7 +28,7 @@
 import type { LlmClient } from '@/lib/ai/llm';
 import { fetchFormatRankings, fetchUsage, resolveUsageFormat, type UsageData, type UsageRank } from '@/lib/data/usage';
 import { listItems, listSpecies, isLegalSpecies, getSpecies } from '@/lib/data/champions';
-import { megaForStone, usesMega } from '@/lib/data/megas';
+import { megaForStone } from '@/lib/data/megas';
 import { calcDamage, computeStats, type CalcResult } from '@/lib/calc/engine';
 import { championsMeta } from '@/lib/data/meta';
 import { getRuleset, DEFAULT_RULESET, type RulesetId } from '@/lib/rulesets';
@@ -249,7 +249,6 @@ async function runPlan(client: LlmClient | null, state: BuildState): Promise<str
   const open = openSlotsOf(slots);
   const [rankings, source] = await Promise.all([fetchFormatRankings(ruleset).catch(() => []), resolveUsageFormat(ruleset).catch(() => null)]);
   const lockedNames = new Set(locked.map((m) => m.species));
-  const lockedHasMega = locked.some((m) => isMega(m.species));
 
   let out: PlanOutput | null = null;
   if (client) {
@@ -258,8 +257,8 @@ async function runPlan(client: LlmClient | null, state: BuildState): Promise<str
 You plan Pokémon Champions (VGC doubles, ${rules.label}, Level 50, bring 4 of 6) teams. You choose WHICH Pokémon
 fill the open slots; sets are built afterwards from real usage data, so do not describe moves or items.
 Rules: exact species names (Megas are hyphenated: "Dragonite-Mega", "Charizard-Mega-Y"); Species Clause (no
-duplicates, including the locked slots); at most ONE Mega on the team unless one is already locked (then zero
-more), because only one can Mega Evolve per battle. Cover: speed control, a Fake Out / redirection support,
+duplicates, including the locked slots). A team may carry any number of Mega-capable Pokémon; only one Mega
+Evolves per battle, so extra Megas are flexible options, not a problem. Cover: speed control, a Fake Out / redirection support,
 physical and special damage, and answers to the top of the rankings. Respect every species, style, or
 constraint the user names. Prefer the candidate list; a Pokémon outside it is fine if the user asks or the
 ruleset notes make it clearly good.`;
@@ -279,11 +278,9 @@ Return exactly ${open.length} picks (one per open slot) and ${ALTERNATES} altern
   // Deterministic validation + substitution. Everything below is guaranteed to end with one legal,
   // unique species per open slot.
   const used = new Set<string>(lockedNames);
-  let megaUsed = lockedHasMega;
   const accept = (raw: string): string | null => {
     const species = resolveSpecies(raw, ruleset);
     if (!species || !isLegalSpecies(species, ruleset) || used.has(species)) return null;
-    if (isMega(species)) { if (megaUsed) return null; megaUsed = true; }
     used.add(species);
     return species;
   };
@@ -313,7 +310,7 @@ Return exactly ${open.length} picks (one per open slot) and ${ALTERNATES} altern
   state.picks = picks;
   state.alternates = pool.filter((s) => !used.has(s)).slice(0, ALTERNATES + 4);
   state.notes.push(out ? 'planned by the model' : 'planner unavailable — filled from the rankings');
-  if (substituted) state.notes.push(`${substituted} pick${substituted > 1 ? 's' : ''} replaced (illegal, duplicate, or a second Mega)`);
+  if (substituted) state.notes.push(`${substituted} pick${substituted > 1 ? 's' : ''} replaced (illegal or duplicate)`);
   state.phase = 'draft';
   return `${out ? state.archetype : 'fallback plan'}: ${picks.map((p) => p.species).join(', ')}`;
 }
@@ -332,22 +329,20 @@ function usageEvidence(u: UsageData | null): string {
 
 /**
  * Build a validated default set; null when usage gives nothing legal to stand on.
- * `megaTaken` is the team's single Mega slot: a base species drafted with its stone becomes the
- * Mega forme if the slot is free (that is what the engine calcs with), otherwise loses the stone.
+ * A base species drafted with its Mega Stone becomes the Mega forme, which is what the engine
+ * calcs with. Teams may carry any number of Megas (only one Mega Evolves per battle), so nothing
+ * here limits them.
  */
-async function draftFor(slot: number, species: string, role: string, ruleset: RulesetId, takenItems: Set<string>, mega: { taken: boolean }): Promise<DraftSet | null> {
+async function draftFor(slot: number, species: string, role: string, ruleset: RulesetId, takenItems: Set<string>): Promise<DraftSet | null> {
   const usage = await fetchUsage(species, ruleset).catch(() => null);
   const set = await buildSetFromUsage(species, {}, ruleset);
   if (set.moves.filter(Boolean).length < 4) return null;
   const legal = new Set(listItems(ruleset).map((i) => i.toLowerCase()));
-  const nextItem = () => (usage?.items ?? []).map((i) => i.name).find((i) => legal.has(i.toLowerCase()) && !takenItems.has(i.toLowerCase()) && !megaForStone(i)) ?? '';
-  // One Mega per team, counted by stone as well as by forme.
+  const nextItem = () => (usage?.items ?? []).map((i) => i.name).find((i) => legal.has(i.toLowerCase()) && !takenItems.has(i.toLowerCase())) ?? '';
   const stoneMega = megaForStone(set.item);
   if (stoneMega && !isMega(set.species)) {
-    if (!mega.taken && isLegalSpecies(stoneMega, ruleset)) set.species = stoneMega;
+    if (isLegalSpecies(stoneMega, ruleset)) set.species = stoneMega;
     else set.item = nextItem();
-  } else if (isMega(set.species) && mega.taken) {
-    return null;
   }
   // Item Clause: slide down the usage list for a free item.
   if (set.item && takenItems.has(set.item.toLowerCase())) set.item = nextItem();
@@ -356,7 +351,6 @@ async function draftFor(slot: number, species: string, role: string, ruleset: Ru
   const errors = await validateProposal(set.species, { ability: set.ability, item: set.item, moves: set.moves, sp: set.sp }, ruleset);
   if (errors.length) return null;
   if (set.item) takenItems.add(set.item.toLowerCase());
-  if (usesMega(set)) mega.taken = true;
   return { ...set, slot, role, evidence: usageEvidence(usage) };
 }
 
@@ -408,17 +402,16 @@ async function runDraft(state: BuildState): Promise<string> {
   const picks = state.picks ?? [];
   const alternates = [...(state.alternates ?? [])];
   const used = new Set([...locked.map((m) => m.species), ...picks.map((p) => p.species)]);
-  const mega = { taken: locked.some((m) => usesMega({ species: m.species, item: m.item })) };
 
-  // Drafts are built in slot order so Item Clause and the single Mega resolve deterministically.
+  // Drafts are built in slot order so Item Clause resolution is deterministic.
   const drafts: DraftSet[] = [];
   let replaced = 0;
   for (const p of picks) {
-    let d = await draftFor(p.slot, p.species, p.role, ruleset, takenItems, mega);
+    let d = await draftFor(p.slot, p.species, p.role, ruleset, takenItems);
     while (!d && alternates.length) {
       const alt = alternates.shift()!;
-      if (used.has(alt) || (isMega(alt) && mega.taken)) continue;
-      d = await draftFor(p.slot, alt, `Replaces ${p.species}, which had no usable set. ${p.role}`, ruleset, takenItems, mega);
+      if (used.has(alt)) continue;
+      d = await draftFor(p.slot, alt, `Replaces ${p.species}, which had no usable set. ${p.role}`, ruleset, takenItems);
       if (d) { used.add(alt); replaced += 1; }
     }
     if (!d) throw new Error(`No usable set could be built for slot ${p.slot} (${p.species}) or any alternate.`);
@@ -476,8 +469,8 @@ async function runRefine(client: LlmClient | null, state: BuildState): Promise<B
 You finalize Pokémon Champions (VGC doubles, ${rules.label}, Level 50) sets. The species are fixed; you choose
 each slot's moves, item, ability, nature, SP spread, and a one-sentence role, then write the team summary.
 Rules: Stat Points 0–32 per stat, 66 total (never EVs/IVs). No Terastallization. Item Clause (no duplicate
-items, including the locked slots). ONE Mega per team: exactly the draft that is already a Mega forme or holds
-a Mega Stone may keep it; give no other slot a Mega Stone. Choose a real nature that fits each spread (Jolly/
+items, including the locked slots). Megas: keep any Mega forme or Mega Stone as drafted; a team may carry
+several (only one Mega Evolves per battle). Choose a real nature that fits each spread (Jolly/
 Adamant, Timid/Modest, or a bulk nature); a neutral nature is a downgrade on an invested attacker.
 Legal items only: ${legalItems.join(', ')}.
 Stay close to the usage evidence unless the SPEED or COVERAGE facts give a concrete reason to deviate (a
@@ -526,9 +519,7 @@ Return one entry per draft slot (${drafts.map((d) => d.slot).join(', ')}) and th
         ? await validateProposal(candidate.species, { ability: candidate.ability, item: candidate.item, moves: candidate.moves, sp: candidate.sp }, ruleset)
         : ['incomplete set'];
       const itemClash = !!candidate.item && takenItems.has(candidate.item.toLowerCase());
-      // A refined set may not introduce a second Mega (stone or forme).
-      const secondMega = usesMega(candidate) && !usesMega(d) && [...locked, ...drafts].some((m) => usesMega({ species: m.species, item: m.item }));
-      if (!errors.length && !itemClash && !secondMega) chosen = candidate;
+      if (!errors.length && !itemClash) chosen = candidate;
       else { chosen = { ...d, role: candidate.role }; reverted += 1; }
     }
     // A reverted draft's item can only clash with a refined item chosen earlier in this pass.

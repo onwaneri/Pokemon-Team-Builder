@@ -27,7 +27,7 @@
  */
 import type { LlmClient } from '@/lib/ai/llm';
 import { fetchFormatRankings, fetchUsage, resolveUsageFormat, type UsageData, type UsageRank } from '@/lib/data/usage';
-import { listItems, listSpecies, isLegalSpecies, getSpecies } from '@/lib/data/champions';
+import { listItems, listSpecies, isLegalSpecies, getSpecies, getMove } from '@/lib/data/champions';
 import { megaForStone } from '@/lib/data/megas';
 import { calcDamage, computeStats, type CalcResult } from '@/lib/calc/engine';
 import { championsMeta } from '@/lib/data/meta';
@@ -123,17 +123,33 @@ function koLabel(r: CalcResult): string {
 }
 
 /**
- * Usage data carries spreads but rarely natures, so drafts arrive as "Hardy". A neutral nature on
- * an invested attacker is a real downgrade, so derive one from the spread and base stats: boost the
- * bigger of Atk/SpA (or Spe when Speed is the largest investment), drop the unused attacking stat.
+ * Which attacking stat a set actually uses: decided by its damaging moves' categories (a Torkoal
+ * with Eruption/Weather Ball is special no matter that its base Atk equals its base SpA), then by
+ * the spread, then by base stats.
  */
-function inferNature(species: string, sp: SpSpread, current: string): string {
-  if (current && current.toLowerCase() !== 'hardy') return current;
+function attackingStat(species: string, moves: string[], sp: SpSpread): 'atk' | 'spa' {
+  let physical = 0;
+  let special = 0;
+  for (const mv of moves) {
+    const info = mv ? getMove(mv) : null;
+    if (info?.category === 'Physical' && info.basePower > 0) physical += 1;
+    else if (info?.category === 'Special' && info.basePower > 0) special += 1;
+  }
+  if (physical !== special) return physical > special ? 'atk' : 'spa';
+  if ((sp.atk ?? 0) !== (sp.spa ?? 0)) return (sp.atk ?? 0) > (sp.spa ?? 0) ? 'atk' : 'spa';
   const base = getSpecies(species)?.baseStats;
-  if (!base) return current || 'Hardy';
-  const atk = (sp.atk ?? 0) + base.atk;
-  const spa = (sp.spa ?? 0) + base.spa;
-  const physical = atk >= spa;
+  return base && base.spa > base.atk ? 'spa' : 'atk';
+}
+
+/**
+ * Usage data carries spreads but rarely natures, so drafts arrive as "Hardy". A neutral nature on
+ * an invested attacker is a real downgrade, so derive one from what the set attacks with and how
+ * it is invested: boost the attacking stat (or Spe when Speed is the largest investment), drop
+ * the unused attacking stat, or pick a bulk nature for defensive spreads.
+ */
+function inferNature(species: string, moves: string[], sp: SpSpread, current: string): string {
+  if (current && current.toLowerCase() !== 'hardy') return current;
+  const physical = attackingStat(species, moves, sp) === 'atk';
   const speedFirst = (sp.spe ?? 0) >= 24 && (sp.spe ?? 0) >= Math.max(sp.atk ?? 0, sp.spa ?? 0);
   const bulkFirst = (sp.hp ?? 0) + (sp.def ?? 0) + (sp.spd ?? 0) >= 48 && Math.max(sp.atk ?? 0, sp.spa ?? 0) < 16;
   if (bulkFirst) return (sp.def ?? 0) >= (sp.spd ?? 0) ? (physical ? 'Impish' : 'Bold') : (physical ? 'Careful' : 'Calm');
@@ -141,11 +157,11 @@ function inferNature(species: string, sp: SpSpread, current: string): string {
   return physical ? 'Adamant' : 'Modest';
 }
 
-/** A sane default spread when usage has none: max the main attacking stat, then Speed or bulk. */
-function defaultSpread(species: string): SpSpread {
+/** A sane default spread when usage has none: max the attacking stat the moves use, then Speed or bulk. */
+function defaultSpread(species: string, moves: string[]): SpSpread {
   const base = getSpecies(species)?.baseStats;
-  if (!base) return { hp: 32, atk: 32, spe: 2 };
-  const attacking: keyof SpSpread = base.atk >= base.spa ? 'atk' : 'spa';
+  const attacking = attackingStat(species, moves, {});
+  if (!base) return { hp: 32, [attacking]: 32, spe: 2 };
   return base.spe >= 85 ? { hp: 2, [attacking]: 32, spe: 32 } : { hp: 32, [attacking]: 32, spd: 2 };
 }
 
@@ -346,8 +362,8 @@ async function draftFor(slot: number, species: string, role: string, ruleset: Ru
   }
   // Item Clause: slide down the usage list for a free item.
   if (set.item && takenItems.has(set.item.toLowerCase())) set.item = nextItem();
-  if (!Object.keys(set.sp).length) set.sp = defaultSpread(set.species);
-  set.nature = inferNature(set.species, set.sp, set.nature);
+  if (!Object.keys(set.sp).length) set.sp = defaultSpread(set.species, set.moves);
+  set.nature = inferNature(set.species, set.moves, set.sp, set.nature);
   const errors = await validateProposal(set.species, { ability: set.ability, item: set.item, moves: set.moves, sp: set.sp }, ruleset);
   if (errors.length) return null;
   if (set.item) takenItems.add(set.item.toLowerCase());

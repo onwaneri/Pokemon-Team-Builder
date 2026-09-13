@@ -311,7 +311,7 @@ export async function validateProposal(
     }
   }
   if (moves?.length && isLegalSpecies(species, ruleset)) {
-    errors.push(...(await learnsetIssues(species, moves)));
+    errors.push(...(await learnsetIssues(species, moves, ruleset)));
   }
   if (set.sp) {
     const v = validateSp(set.sp);

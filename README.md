@@ -65,7 +65,7 @@ behaviour without one.
 |---|---|
 | App | Next.js 16 App Router, React 19, TypeScript, Tailwind 4 |
 | Calc engine | Vendored `@smogon/calc` master build with Champions as generation 0 (`vendor/smogon-calc`) |
-| Dex data | The vendored calc dataset, with Reg M-C additions and learnsets grafted from `@pkmn/dex` |
+| Dex data | The vendored calc dataset, with Reg M-C additions and learnsets grafted from `@pkmn/dex` (corrected by Pikalytics usage) |
 | Usage data | Pikalytics AI endpoint, fetched live; cached fresh for 6h and served stale for up to a day (`src/lib/cache/`) |
 | Auth | Firebase Auth (Google and email/password), project `pokemon-vgc-tool` |
 | Database | Firestore: `users/{uid}/teams` for the library, `aiQuota` for the free-tier counter, `cache` for the persistent server cache |

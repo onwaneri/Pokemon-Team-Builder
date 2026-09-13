@@ -39,14 +39,14 @@ export async function POST(req: Request) {
     }
   }
 
-  // Species↔move check (Gen 9 Showdown learnsets grafted onto Champions; unknown moves pass).
+  // Species↔move check (Gen 9 Showdown learnsets plus Champions usage evidence; unknown moves pass).
   for (const m of members) {
     for (const mv of m.moves.filter(Boolean)) {
-      if ((await canLearn(m.species, mv)) === 'no') {
+      if ((await canLearn(m.species, mv, ruleset)) === 'no') {
         issues.push({
           field: 'move',
           value: mv,
-          message: `${m.species} cannot learn ${mv} (per Gen 9 Showdown learnset data, grafted onto Champions).`,
+          message: `${m.species} cannot learn ${mv} (per Gen 9 Showdown learnset data, and no Champions usage shows it).`,
         } satisfies LegalityIssue);
       }
     }

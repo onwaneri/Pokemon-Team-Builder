@@ -152,9 +152,10 @@ Visitors choose a provider; the server chooses the model per job.
   preview, what was brought, leads, archetype markers, result — and aggregates a player's recent
   replays in one format. No model is involved. One format id per call, at most 25 replays, and a
   log that does not yield the facts it needs is excluded and reported rather than counted.
-- `src/lib/data/learnsets.ts` is a Gen 9 graft (Champions publishes no learnset table). Verdicts
-  are three-state; a move is rejected only with positive evidence, so Champions-only signatures
-  are never blocked.
+- `src/lib/data/learnsets.ts` is a Gen 9 graft (Champions publishes no learnset table) corrected
+  by Pikalytics: a move with usage on a species in the current format counts as learnable, which
+  covers Champions-only additions such as Swampert's Wave Crash. Verdicts are three-state; a move
+  is rejected only with positive evidence, so Champions-only signatures are never blocked.
 - `src/lib/ai/tools.ts` holds the shared tool declarations (`calcDamage`, `lookupUsage`,
   `compareSpeed`, and `threatMatrix` re-exported from `calc/threats.ts`) and the legality gate
   every AI entry point uses. A set that is illegal for chat is illegal for the team builder and

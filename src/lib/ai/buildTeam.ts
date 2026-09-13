@@ -531,6 +531,13 @@ Return one entry per draft slot (${drafts.map((d) => d.slot).join(', ')}) and th
         moves: (r.moves ?? []).filter(Boolean).slice(0, 4),
         role: r.role?.trim() || d.role,
       };
+      // Same normalization as the draft phase: a base forme given its Mega Stone becomes the Mega
+      // forme (what the engine calcs with), taking the forme's own ability.
+      const stoneMega = megaForStone(candidate.item);
+      if (stoneMega && !isMega(candidate.species) && isLegalSpecies(stoneMega, ruleset)) {
+        candidate.species = stoneMega;
+        candidate.ability = getSpecies(stoneMega)?.abilities[0] ?? candidate.ability;
+      }
       const errors = candidate.moves.length === 4 && validateSp(candidate.sp).ok
         ? await validateProposal(candidate.species, { ability: candidate.ability, item: candidate.item, moves: candidate.moves, sp: candidate.sp }, ruleset)
         : ['incomplete set'];

@@ -1,15 +1,16 @@
 /**
- * POST /api/build-team — one round of the team builder per request.
+ * POST /api/build-team — one phase of the team builder per request (plan → draft → refine).
  *
  * Start:    { prompt, team, regulation? }  → charges one free request (or uses the visitor's key),
- *                                            prepares the build, runs the first round.
- * Continue: { state }                       → runs the next round on the signed state from the
+ *                                            prepares the build, runs the plan phase.
+ * Continue: { state }                       → runs the next phase on the signed state from the
  *                                            previous response; never re-charges.
  * Response: { state, progress, done }      where `done` is { team, summary, toolCalls } on the
- *                                            round that produced an accepted team, else null.
+ *                                            refine phase, else null.
  *
- * Splitting the loop keeps every request under a single model call, so it fits serverless
- * request limits regardless of how many research rounds the model needs.
+ * Each phase is bounded by one capped model call or one batch of capped fetches (see
+ * lib/ai/buildTeam.ts), so a request can never outlive the serverless function limit, and every
+ * phase has a deterministic fallback, so a build never ends without a legal team.
  */
 import { NextResponse } from 'next/server';
 import { startBuild, stepBuild, type BuildState } from '@/lib/ai/buildTeam';
@@ -33,7 +34,7 @@ export async function POST(req: Request) {
   let state: BuildState | null = null;
   if (continuing) {
     state = openState<BuildState>(body.state);
-    if (!state || state.v !== 1) return NextResponse.json({ error: 'The build state is invalid or expired. Start again.' }, { status: 400 });
+    if (!state || state.v !== 2) return NextResponse.json({ error: 'The build state is invalid or expired. Start again.' }, { status: 400 });
   }
 
   let grant;

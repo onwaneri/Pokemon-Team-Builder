@@ -4,10 +4,10 @@
  * Team builder controls on the Team tab, shown while slots are still open.
  *
  * With an empty team it builds from a short description; with a few Pokémon placed it fills the
- * remaining slots around them (those stay locked). The build runs one model round per request
- * (see /api/build-team): the panel keeps calling with the signed state it gets back and shows
- * what each round did, so nothing depends on a long-lived request. The result is applied
- * straight to the team; Workspace keeps the previous slots for Undo.
+ * remaining slots around them (those stay locked). The build runs as three bounded phases, one
+ * per request (plan → draft → refine, see /api/build-team): the panel keeps calling with the
+ * signed state it gets back and shows what each phase did, so nothing depends on a long-lived
+ * request. The result is applied straight to the team; Workspace keeps the previous slots for Undo.
  */
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import type { TeamMon } from '@/lib/benchmarks/types';

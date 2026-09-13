@@ -14,8 +14,9 @@ import { Type, type FunctionDeclaration } from '@google/genai';
 import type { LlmClient, LlmMessage } from '@/lib/ai/llm';
 import { calcDamage, compareSpeed, type MonInput, type MoveInput, type FieldInput, type SpeedMonInput } from '@/lib/calc/engine';
 import { fetchUsage, resolveUsageFormat, type TypeMatchup } from '@/lib/data/usage';
-import { validateLegality, legalAbilities, isLegalItem, isLegalSpecies } from '@/lib/data/champions';
+import { validateLegality, legalAbilities, isLegalItem, isLegalSpecies, getSpecies } from '@/lib/data/champions';
 import { learnsetIssues } from '@/lib/data/learnsets';
+import { calcSpecies, megaFormsFor, formsJson, isMegaSpecies, stoneForMega } from '@/lib/data/megas';
 import { validateSp, type SpSpread } from '@/lib/calc/sp';
 import type { CalcMonSet } from '@/lib/ai/types';
 import { getRuleset, DEFAULT_RULESET, type RulesetId } from '@/lib/rulesets';
@@ -210,8 +211,10 @@ export async function executeLookupUsage(args: LookupUsageArgs, ruleset: Ruleset
   try {
     const [data, source] = await Promise.all([fetchUsage(args.species, ruleset), resolveUsageFormat(ruleset)]);
     if (!data) return { error: `No usage data found for "${args.species}" (usage source: ${source.format}).` };
+    const megaForms = formsJson(data.species, data.items?.[0]?.name);
     return {
       species: data.species,
+      ...(megaForms ? { megaForms } : {}),
       ...(source.fallbackFrom
         ? { dataCaveat: `Pikalytics has not published ${getRuleset(ruleset).short} data yet — these numbers are from the previous format (${source.format}). Additions new to ${getRuleset(ruleset).short} have no usage data; reason from mechanics.` }
         : {}),
@@ -290,6 +293,17 @@ export async function validateProposal(
     item: set.item || undefined,
     moves,
   }, ruleset).map((i) => i.message);
+  if (isMegaSpecies(species)) {
+    const stone = stoneForMega(species);
+    if (stone && (set.item ?? '').toLowerCase() !== stone.toLowerCase()) {
+      errors.push(`${species} must hold ${stone} to Mega Evolve (it has ${set.item || 'no item'}). Give it ${stone}, or use the base forme.`);
+    }
+  } else {
+    const forms = megaFormsFor(species, set.item);
+    if (forms && isLegalSpecies(forms.mega, ruleset)) {
+      errors.push(`${species} holding ${forms.stone} Mega Evolves into ${forms.mega} — propose it as "${forms.mega}" so its Mega stats, typing, and ability are the ones judged.`);
+    }
+  }
   if (set.ability) {
     const legal = legalAbilities(species);
     if (legal.length && !legal.some((a) => a.toLowerCase() === set.ability!.toLowerCase())) {
@@ -331,10 +345,15 @@ export async function buildSetFromUsage(species: string, overrides: SetOverrides
         ? featured.moves
         : (usage?.moves?.slice(0, 4).map((e) => e.name) ?? []);
   const sp = (overrides.sp as SpSpread | undefined) ?? (featured?.sp as SpSpread | undefined) ?? (usage?.topSpread as SpSpread | undefined) ?? {};
+  const item = overrides.item ?? featured?.item ?? usage?.items?.[0]?.name ?? '';
+  // Usage lists the species you bring ("Charizard" holding Charizardite X); the set is the forme it
+  // fights as, so the engine and every judgment see the Mega's stats, typing, and ability.
+  const forme = calcSpecies(species, item, ruleset);
+  const abilities = forme !== species ? (getSpecies(forme)?.abilities ?? []) : [];
   return {
-    species,
-    ability: overrides.ability ?? featured?.ability ?? usage?.abilities?.[0]?.name ?? '',
-    item: overrides.item ?? featured?.item ?? usage?.items?.[0]?.name ?? '',
+    species: forme,
+    ability: (forme !== species ? abilities[0] : undefined) ?? overrides.ability ?? featured?.ability ?? usage?.abilities?.[0]?.name ?? '',
+    item,
     nature: overrides.nature ?? featured?.nature ?? 'Hardy',
     sp,
     moves: movesRaw.slice(0, 4),

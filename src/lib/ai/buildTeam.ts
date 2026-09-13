@@ -28,7 +28,7 @@
 import type { LlmClient } from '@/lib/ai/llm';
 import { fetchFormatRankings, fetchUsage, resolveUsageFormat, type UsageData, type UsageRank } from '@/lib/data/usage';
 import { listItems, listSpecies, isLegalSpecies, getSpecies, getMove } from '@/lib/data/champions';
-import { megaForStone } from '@/lib/data/megas';
+import { megaForStone, describeForms } from '@/lib/data/megas';
 import { calcDamage, computeStats, type CalcResult } from '@/lib/calc/engine';
 import { championsMeta } from '@/lib/data/meta';
 import { getRuleset, DEFAULT_RULESET, type RulesetId } from '@/lib/rulesets';
@@ -185,7 +185,10 @@ function rankingsSection(rankings: UsageRank[], fallbackFrom: string | null, for
 
 function lockedSection(locked: TeamMon[]): string {
   return locked.length
-    ? locked.map((m) => `Slot ${m.slot}: ${m.species} @ ${m.item || '—'} | ${m.ability || '—'} | ${m.nature} | ${m.moves.filter(Boolean).join('/') || 'no moves'} | SP ${fmtSp(m.sp)}`).join('\n')
+    ? locked.map((m) => {
+        const forms = describeForms(m.species, m.item);
+        return `Slot ${m.slot}: ${m.species} @ ${m.item || '—'} | ${m.ability || '—'} | ${m.nature} | ${m.moves.filter(Boolean).join('/') || 'no moves'} | SP ${fmtSp(m.sp)}${forms ? `\n  ${forms}` : ''}`;
+      }).join('\n')
     : '(none — build the whole team)';
 }
 
@@ -500,7 +503,7 @@ LOCKED SLOTS (unchangeable):
 ${lockedSection(locked)}
 
 DRAFT SETS (built from usage; refine these):
-${drafts.map((d) => `Slot ${d.slot}: ${d.species} @ ${d.item || '—'} | ${d.ability || '—'} | ${d.nature} | SP ${fmtSp(d.sp)} | ${d.moves.join('/')}
+${drafts.map((d) => `Slot ${d.slot}: ${d.species} @ ${d.item || '—'} | ${d.ability || '—'} | ${d.nature} | SP ${fmtSp(d.sp)} | ${d.moves.join('/')}${describeForms(d.species, d.item) ? `\n  ${describeForms(d.species, d.item)}` : ''}
   role hint: ${d.role}
   usage: ${d.evidence}`).join('\n')}
 

@@ -28,7 +28,7 @@ export async function POST(req: Request) {
     throw e;
   }
 
-  const check = await parseBenchmarkDescription(description.trim(), species.trim(), grant.client);
+  const check = await parseBenchmarkDescription(description.trim(), species.trim(), grant.client, mon?.item);
 
   const benchmark: Benchmark = {
     id: crypto.randomUUID(),

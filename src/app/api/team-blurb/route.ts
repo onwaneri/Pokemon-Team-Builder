@@ -12,6 +12,7 @@
  *   - The visitor has no AI key connected (blurbs are an ambient feature and never use the free tier).
  *   - Gemini returns an error (blurb is best-effort, never blocks saving).
  */
+import { formsJson } from '@/lib/data/megas';
 import { NextResponse } from 'next/server';
 import { resolveAi } from '@/lib/ai/credential';
 import { computeStats } from '@/lib/calc/engine';
@@ -79,6 +80,7 @@ export async function POST(req: Request) {
       sp: mon.sp,
       moves: mon.moves,
       computedStats,
+      ...(formsJson(mon.species, mon.item) ? { megaForms: formsJson(mon.species, mon.item) } : {}),
     };
   });
 

@@ -18,6 +18,7 @@ import { Type, type FunctionDeclaration } from '@google/genai';
 import type { LlmClient, LlmMessage } from '@/lib/ai/llm';
 import { fetchFormatRankings, resolveUsageFormat } from '@/lib/data/usage';
 import { listItems, isLegalSpecies } from '@/lib/data/champions';
+import { describeForms } from '@/lib/data/megas';
 import { getRuleset, DEFAULT_RULESET, type RulesetId } from '@/lib/rulesets';
 import { championsMeta } from '@/lib/data/meta';
 import type { TeamMon } from '@/lib/benchmarks/types';
@@ -53,7 +54,8 @@ const MAX_TOOL_ROUNDS = 32;
 const VIEW_LABEL: Record<WorkspaceView, string> = { team: 'Team', calc: 'Damage Calc', speed: 'Speed Tiers' };
 
 function fmtSet(s: CalcMonSet): string {
-  return `${s.species} @ ${s.item || '—'} | ${s.ability || '—'} | ${s.nature || 'Hardy'} | SP ${fmtSp(s.sp)} | ${s.moves.filter(Boolean).join('/') || 'no moves'}`;
+  const forms = describeForms(s.species, s.item);
+  return `${s.species} @ ${s.item || '—'} | ${s.ability || '—'} | ${s.nature || 'Hardy'} | SP ${fmtSp(s.sp)} | ${s.moves.filter(Boolean).join('/') || 'no moves'}${forms ? ` | ${forms}` : ''}`;
 }
 
 function describeScreen(context: ScreenContext | undefined, team: TeamMon[] | undefined): string {
@@ -112,7 +114,10 @@ async function buildSystemInstruction(team: TeamMon[] | undefined, context: Scre
     : 'Live usage rankings are currently unavailable. Call lookupUsage per species; never assert usage percentages or "most common" claims from memory.';
   const teamSection = team?.length
     ? `Current team:\n${team
-        .map((m) => `  Slot ${m.slot}: ${m.species} @ ${m.item || '—'} | ${m.ability || '—'} | ${m.nature} | ${m.moves.filter(Boolean).join('/') || 'no moves'} | SP: ${fmtSp(m.sp)}`)
+        .map((m) => {
+          const forms = describeForms(m.species, m.item);
+          return `  Slot ${m.slot}: ${m.species} @ ${m.item || '—'} | ${m.ability || '—'} | ${m.nature} | ${m.moves.filter(Boolean).join('/') || 'no moves'} | SP: ${fmtSp(m.sp)}${forms ? `\n    ${forms}` : ''}`;
+        })
         .join('\n')}`
     : 'No team is currently loaded (all six slots are empty).';
 
@@ -130,6 +135,11 @@ type, refuse any Tera-based request.
 MEGA EVOLUTION: Mega Evolution is a core mechanic. A Pokémon holding its Mega Stone Mega Evolves
 on its first attack. Megas get new base stats, a new ability, and sometimes a new type. Always use
 the EXACT hyphenated engine species name: "Dragonite-Mega", "Glimmora-Mega", "Aerodactyl-Mega", etc.
+Every Mega-capable Pokémon in the team or on a screen is annotated MEGA-CAPABLE with BOTH formes'
+typing, abilities, and base stats. Judge threats, speed, and damage by the Mega forme (it fights as
+that from its first attack); mention the pre-Mega forme only for turn-one interactions (its ability
+such as Intimidate/Multiscale triggers before the Mega ability takes over). Engine tools never Mega
+Evolve on their own: pass the Mega species name to calc the Mega, the base name for pre-Mega.
 ONE MEGA PER TEAM PER BATTLE — each team may Mega Evolve exactly one Pokémon per battle, regardless
 of how many Mega-capable Pokémon are on that team. Never suggest strategies where two Pokémon from
 the same team both Mega Evolve. Two opposing teams may each have one Mega active simultaneously.

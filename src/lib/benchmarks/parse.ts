@@ -2,6 +2,7 @@
  * Convert a natural-language benchmark description into a structured BenchmarkCheck via Gemini.
  * Called both from the manual add flow (API route) and by the AI proposeBenchmark tool.
  */
+import { describeForms } from '@/lib/data/megas';
 import { Type } from '@google/genai';
 import type { LlmClient } from '@/lib/ai/llm';
 import { generateJson } from '@/lib/ai/tools';
@@ -79,9 +80,11 @@ export async function parseBenchmarkDescription(
   description: string,
   monSpecies: string,
   client: LlmClient | null | undefined,
+  monItem?: string,
 ): Promise<BenchmarkCheck | null> {
   if (!client) return null;
-  const prompt = `Team Pokémon: ${monSpecies}\nBenchmark: "${description}"\n\nParse the benchmark above.`;
+  const forms = describeForms(monSpecies, monItem);
+  const prompt = `Team Pokémon: ${monSpecies}${monItem ? ` @ ${monItem}` : ''}${forms ? `\n${forms}` : ''}\nBenchmark: "${description}"\n\nParse the benchmark above.`;
 
   try {
     const parsed = await generateJson<Record<string, unknown>>(client, { system: SYSTEM, prompt, schema: responseSchema });

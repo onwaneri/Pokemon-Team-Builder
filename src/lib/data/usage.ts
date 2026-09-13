@@ -215,7 +215,7 @@ async function loadUsage(format: string, species: string, ruleset: RulesetId): P
   // its predecessor format still serves one. Current format first, then the predecessor, so a
   // measured spread always beats a borrowed one. At most three extra best-effort fetches.
   if (!data.topSpread) {
-    const base = species.replace(/-Mega(?:-[XY])?$/i, '').replace(/-Eternal$/, '');
+    const base = species.replace(/-Mega(?:-[XYZ])?$/i, '').replace(/-Eternal$/, '');
     const formats = getRuleset(ruleset).pikalyticsFormats;
     // Formats are listed most specific first, so anything after the one serving data is older.
     // Only the next one back is tried, to keep the fetch count bounded.

@@ -12,9 +12,11 @@ import type { CalcMonSet, CalcScreenState, CompareOpponent } from '@/lib/ai/type
 import type { FormLists } from '@/lib/data/champions';
 import CompareStrip from '@/components/CompareStrip';
 import SpEditor from '@/components/SpEditor';
+import MegaFormToggle from '@/components/MegaFormToggle';
+import { megaFormsFor, abilityForForme } from '@/lib/megaForms';
 import { useRuleset } from '@/components/RulesetProvider';
 import PopularSets from '@/components/PopularSets';
-import { MonSprite, TypePill, MoveTypeTag, MegaBadge, DescLine, moveOptionNode, itemOptionNode } from '@/components/ui';
+import { MonSprite, TypePill, MoveTypeTag, MegaBadge, DescLine, moveOptionNode, itemOptionNode, speciesOptionNode } from '@/components/ui';
 
 type MonSet = CalcMonSet;
 
@@ -313,9 +315,21 @@ function SetEditor({ title, side, set, onChange, lists, moveResults, activeKey, 
   const spriteBorder = isAtk ? 'rgba(248,113,113,0.14)' : 'rgba(147,197,253,0.14)';
   const spriteGrad = isAtk ? 'rgba(248,113,113,0.1)' : 'rgba(147,197,253,0.1)';
 
+  const forms = megaFormsFor(set.species, set.item, lists);
   function changeSpecies(species: string) {
     const abilities = lists.speciesAbilities[species] ?? [];
-    onChange({ ...set, species, ability: abilities[0] ?? '', item: '', moves: ['', '', '', ''] });
+    onChange({ ...set, species, ability: abilities[0] ?? '', item: lists.stoneOfMega[species] ?? '', moves: ['', '', '', ''] });
+  }
+  function switchForme(species: string) {
+    if (!forms) return;
+    onChange({ ...set, species, item: forms.stone, ability: abilityForForme(set.ability, species, lists) });
+  }
+  function changeItem(item: string) {
+    if (forms && set.species === forms.mega && item !== forms.stone) {
+      onChange({ ...set, species: forms.base, item, ability: abilityForForme(set.ability, forms.base, lists) });
+      return;
+    }
+    onChange({ ...set, item });
   }
   function setMove(index: number, value: string) {
     const moves = padMoves(set.moves);
@@ -358,8 +372,14 @@ function SetEditor({ title, side, set, onChange, lists, moveResults, activeKey, 
 
       {/* Species picker (collapsed to combobox) */}
       <div style={{ marginBottom: 10 }}>
-        <Combobox value={set.species} onChange={changeSpecies} options={lists.species} placeholder="Species" />
+        <Combobox value={set.species} onChange={changeSpecies} options={lists.species} placeholder="Species" renderOption={(name) => speciesOptionNode(name, lists)} />
       </div>
+
+      {forms && (
+        <div style={{ marginBottom: 11 }}>
+          <MegaFormToggle compact forms={forms} current={set.species} lists={lists} sp={set.sp} nature={set.nature} onSwitch={switchForme} />
+        </div>
+      )}
 
       {/* Ability + Item */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginBottom: 11 }}>
@@ -384,7 +404,7 @@ function SetEditor({ title, side, set, onChange, lists, moveResults, activeKey, 
           <div style={fieldLabel}>Item</div>
           <Combobox
             value={set.item}
-            onChange={(item) => onChange({ ...set, item })}
+            onChange={changeItem}
             options={itemOptions}
             placeholder="Item"
             title={lists.itemDesc[set.item]}

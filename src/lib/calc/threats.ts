@@ -38,6 +38,7 @@ import { calcDamage, type CalcResult, type MonInput } from '@/lib/calc/engine';
 import type { SpSpread } from '@/lib/calc/sp';
 import { fetchFormatRankings, fetchUsage, resolveUsageFormat, type UsageRank } from '@/lib/data/usage';
 import { getMove, isLegalSpecies, getSpecies } from '@/lib/data/champions';
+import { calcSpecies, describeForms } from '@/lib/data/megas';
 import { getRuleset, DEFAULT_RULESET, type RulesetId } from '@/lib/rulesets';
 import { cached, contentKey, DETERMINISTIC } from '@/lib/cache/persistent';
 
@@ -221,10 +222,14 @@ async function buildOpponentSet(species: string, ruleset: RulesetId): Promise<Re
   const featured = usage.sets?.[0];
   const moves = (featured?.moves?.length ? featured.moves : usage.moves.map((m) => m.name)).filter(Boolean);
   if (!moves.length) throw new Error('usage data has no moves');
+  const item = featured?.item ?? usage.items[0]?.name ?? '';
+  // A base species holding its stone fights as the Mega; calc the forme that actually takes the field.
+  const forme = calcSpecies(species, item, ruleset);
+  const formeAbility = forme !== species ? getSpecies(forme)?.abilities?.[0] : undefined;
   return {
-    species,
-    ability: featured?.ability ?? usage.abilities[0]?.name ?? '',
-    item: featured?.item ?? usage.items[0]?.name ?? '',
+    species: forme,
+    ability: formeAbility ?? featured?.ability ?? usage.abilities[0]?.name ?? '',
+    item,
     nature: featured?.nature ?? 'Hardy',
     sp: (featured?.sp as SpSpread | undefined) ?? (usage.topSpread as SpSpread | undefined) ?? {},
     moves: moves.slice(0, MAX_MOVES_PER_SIDE),
@@ -596,7 +601,7 @@ export async function executeThreatMatrix(
         species: e.species,
         rank: e.rank,
         outcome: e.outcome,
-        opponentSet: `${e.set.item || '—'} | ${e.set.ability || '—'} | ${e.set.nature} | SP ${fmtSpread(e.set.sp)} | ${e.set.moves.join(' / ')}`,
+        opponentSet: `${e.set.item || '—'} | ${e.set.ability || '—'} | ${e.set.nature} | SP ${fmtSpread(e.set.sp)} | ${e.set.moves.join(' / ')}${describeForms(e.set.species, e.set.item) ? ` | ${describeForms(e.set.species, e.set.item)}` : ''}`,
         offense: e.offense && { move: e.offense.name, pct: `${e.offense.minPct}–${e.offense.maxPct}%`, ko: e.offense.verdict.label, koChance: e.offense.koChance },
         defense: e.defense && { move: e.defense.name, pct: `${e.defense.minPct}–${e.defense.maxPct}%`, ko: e.defense.verdict.label, koChance: e.defense.koChance },
       })),

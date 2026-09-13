@@ -6,6 +6,8 @@ import { calcChampionsStats, natureLabel, natureIssue, isCompleteNature, type Sp
 import { padMoves } from '@/lib/moves';
 import Combobox from '@/components/Combobox';
 import SpEditor from '@/components/SpEditor';
+import MegaFormToggle from '@/components/MegaFormToggle';
+import { megaFormsFor, abilityForForme } from '@/lib/megaForms';
 import type { FormLists } from '@/lib/data/champions';
 import type { PopularSet } from '@/lib/data/usage';
 import { useUsage, usageSortedItems } from '@/hooks/useUsage';
@@ -226,6 +228,7 @@ function SlotWorkspace({ mon: draft, update, lists, onPasteImport, natureNag }: 
   const itemOptions = usageSortedItems(lists.items, usage?.items ?? []);
   const itemPct = new Map((usage?.items ?? []).map((e) => [e.name, e.pct]));
   const moveSections = moveOptionsFor(lists.moves, usage?.moves, learnset);
+  const forms = megaFormsFor(draft.species, draft.item, lists);
 
   function recompute(sp: SpSpread, nature: string) {
     return baseStats ? calcChampionsStats(baseStats, sp, nature) : draft.computedStats;
@@ -234,7 +237,25 @@ function SlotWorkspace({ mon: draft, update, lists, onPasteImport, natureNag }: 
     const abilities = lists.speciesAbilities[species] ?? [];
     const base = lists.speciesStats[species];
     const computedStats = base ? calcChampionsStats(base, draft.sp, draft.nature) : draft.computedStats;
-    update({ ...draft, species, ability: abilities[0] ?? '', item: '', computedStats });
+    // Picking a Mega forme directly means holding its stone; nothing else is legal for it.
+    update({ ...draft, species, ability: abilities[0] ?? '', item: lists.stoneOfMega[species] ?? '', computedStats });
+  }
+  /** Show the other forme: same spread, same stone, the forme's own typing/ability/base stats. */
+  function switchForme(species: string) {
+    if (!forms) return;
+    const base = lists.speciesStats[species];
+    const computedStats = base ? calcChampionsStats(base, draft.sp, draft.nature) : draft.computedStats;
+    update({ ...draft, species, item: forms.stone, ability: abilityForForme(draft.ability, species, lists), computedStats });
+  }
+  function changeItem(item: string) {
+    // A Mega forme without its stone cannot exist; taking the stone away shows the base forme.
+    if (forms && draft.species === forms.mega && item !== forms.stone) {
+      const base = lists.speciesStats[forms.base];
+      const computedStats = base ? calcChampionsStats(base, draft.sp, draft.nature) : draft.computedStats;
+      update({ ...draft, species: forms.base, item, ability: abilityForForme(draft.ability, forms.base, lists), computedStats });
+      return;
+    }
+    update({ ...draft, item });
   }
   function changeNature(nature: string) {
     update({ ...draft, nature, computedStats: recompute(draft.sp, nature) });
@@ -396,6 +417,11 @@ function SlotWorkspace({ mon: draft, update, lists, onPasteImport, natureNag }: 
           <Combobox value={draft.species} onChange={changeSpecies} options={lists.species} placeholder="Species" renderOption={(name) => speciesOptionNode(name, lists)} />
         </div>
 
+        {/* Both formes of a Mega-capable Pokémon */}
+        {forms && (
+          <MegaFormToggle forms={forms} current={draft.species} lists={lists} sp={draft.sp} nature={draft.nature} onSwitch={switchForme} />
+        )}
+
         {/* Ability + Item */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 11 }}>
           <div>
@@ -427,7 +453,7 @@ function SlotWorkspace({ mon: draft, update, lists, onPasteImport, natureNag }: 
             <div style={fieldLabel}>Item</div>
             <Combobox
               value={draft.item ?? ''}
-              onChange={(item) => update({ ...draft, item })}
+              onChange={changeItem}
               options={itemOptions}
               placeholder="Item"
               title={lists.itemDesc[draft.item ?? '']}

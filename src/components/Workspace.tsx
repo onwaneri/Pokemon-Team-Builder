@@ -423,7 +423,7 @@ export default function Workspace({ lists }: { lists: FormLists }) {
   }
 
   function handleExportTeam(t: SavedTeam) {
-    setExportPaste(exportTeamPaste(t.team));
+    setExportPaste(exportTeamPaste(t.team, lists.speciesAbilities));
   }
 
   // ─── Save (⋯ menu) — uses the inline toolbar name, defaulting to "Untitled Team" ──
@@ -690,6 +690,8 @@ export default function Workspace({ lists }: { lists: FormLists }) {
     if (!lists.speciesStats[m.species]) rulesetProblems.push(`${rules.short} · ${m.species} is not usable`);
     if (m.item && !lists.items.includes(m.item)) rulesetProblems.push(`${rules.short} · ${m.species}: ${m.item} is not legal`);
     for (const mv of m.moves) if (mv && !lists.moveInfo[mv]) rulesetProblems.push(`${rules.short} · ${m.species}: ${mv} is not available`);
+    const stone = lists.stoneOfMega[m.species];
+    if (stone && m.item !== stone) rulesetProblems.push(`${m.species} needs ${stone} to Mega Evolve — it is holding ${m.item || 'nothing'}`);
   }
   // Half-picked natures (a raised stat with nothing lowered, or the reverse) block saving,
   // exporting, and the calc screens until the other half is chosen.
@@ -847,7 +849,7 @@ export default function Workspace({ lists }: { lists: FormLists }) {
               onClose={() => setMenuOpen(false)}
               items={[
                 { label: 'Save', hint: currentTeamId ? undefined : 'new', onClick: () => { if (requireCompleteNatures('save')) handleSaveButton(); }, disabled: !team },
-                { label: 'Export', onClick: () => { if (team && requireCompleteNatures('export')) setExportPaste(exportTeamPaste(team)); }, disabled: !team },
+                { label: 'Export', onClick: () => { if (team && requireCompleteNatures('export')) setExportPaste(exportTeamPaste(team, lists.speciesAbilities)); }, disabled: !team },
                 { label: 'Import (replace team)', onClick: openImportModal },
               ]}
             />

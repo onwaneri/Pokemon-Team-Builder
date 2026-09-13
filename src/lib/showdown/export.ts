@@ -22,18 +22,23 @@
 import type { TeamMon } from '@/lib/benchmarks/types';
 import { STAT_ORDER, STAT_LABEL, isCompleteNature } from '@/lib/calc/sp';
 
-function exportMon(mon: TeamMon): string {
+/** Abilities per species, so a Mega forme exports with an ability its base forme can actually have. */
+export type AbilityLookup = Record<string, string[]>;
+
+function exportMon(mon: TeamMon, abilities?: AbilityLookup): string {
   const lines: string[] = [];
 
   // ── First line: name/species/item ──────────────────────────────────────────
   const hasNickname = mon.nickname && mon.nickname.trim().length > 0;
   const hasItem = mon.item && mon.item.trim().length > 0;
 
+  // Showdown wants the species you bring, not the forme it becomes: "Charizard @ Charizardite X".
+  const species = mon.species.replace(/-Mega(-[XYZ])?$/, '');
   let firstLine: string;
   if (hasNickname) {
-    firstLine = `${mon.nickname} (${mon.species})`;
+    firstLine = `${mon.nickname} (${species})`;
   } else {
-    firstLine = mon.species;
+    firstLine = species;
   }
   if (hasItem) {
     firstLine += ` @ ${mon.item}`;
@@ -41,8 +46,15 @@ function exportMon(mon: TeamMon): string {
   lines.push(firstLine);
 
   // ── Ability ────────────────────────────────────────────────────────────────
-  if (mon.ability && mon.ability.trim().length > 0) {
-    lines.push(`Ability: ${mon.ability}`);
+  // A Mega's ability (Tough Claws) is not legal on the species you bring; Showdown wants the base
+  // forme's. Keep the stored one when the base can have it, else the base's first ability.
+  let ability = mon.ability ?? '';
+  if (species !== mon.species && abilities) {
+    const legal = abilities[species] ?? [];
+    if (!legal.some((a) => a.toLowerCase() === ability.toLowerCase())) ability = legal[0] ?? ability;
+  }
+  if (ability.trim().length > 0) {
+    lines.push(`Ability: ${ability}`);
   }
 
   // ── Level (always 50) ─────────────────────────────────────────────────────
@@ -81,7 +93,7 @@ function exportMon(mon: TeamMon): string {
  * Serialize a 6-slot team to a Showdown-compatible SP-native paste.
  * Null slots are skipped. Mons are separated by a single blank line.
  */
-export function exportTeamPaste(team: (TeamMon | null)[]): string {
-  const blocks = team.filter((mon): mon is TeamMon => mon !== null).map(exportMon);
+export function exportTeamPaste(team: (TeamMon | null)[], abilities?: AbilityLookup): string {
+  const blocks = team.filter((mon): mon is TeamMon => mon !== null).map((mon) => exportMon(mon, abilities));
   return blocks.join('\n\n');
 }

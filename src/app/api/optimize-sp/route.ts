@@ -6,6 +6,7 @@
  * benchmark and the SP budget before it is accepted. Rejections go back into the loop with the
  * failing detail so the model corrects itself. Interactive: own key or one free request.
  */
+import { describeForms } from '@/lib/data/megas';
 import { NextRequest, NextResponse } from 'next/server';
 import { Type } from '@google/genai';
 import { evaluateBenchmarks } from '@/lib/benchmarks/evaluate';
@@ -86,7 +87,7 @@ POKÉMON: ${species}
 Ability: ${ability || '—'} | Item: ${item || '—'} | Nature: ${nature}
 Moves: ${moves.filter(Boolean).join(' / ') || '(none)'}
 Base stats: HP ${baseStats.hp} / Atk ${baseStats.atk} / Def ${baseStats.def} / SpA ${baseStats.spa} / SpD ${baseStats.spd} / Spe ${baseStats.spe}
-
+${describeForms(species, item) ? `${describeForms(species, item)}\nThe SP spread is shared by both formes; optimize for the forme named above (species "${species}"), and calc with that exact species name.\n` : ''}
 SP SYSTEM (Champions format, Level 50, all IVs = 31):
 • Non-HP: floor(nature_mult × (base + SP + 20))   [nature_mult = 1.1 boosted / 0.9 hindered / 1.0 neutral]
 • HP:     base_hp + SP + 20 + 60 + 1              [no nature multiplier]

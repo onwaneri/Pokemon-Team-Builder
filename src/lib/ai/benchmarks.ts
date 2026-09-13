@@ -1,9 +1,11 @@
 /**
  * Infer a one-line competitive role for each team member (structured JSON output on whatever
  * provider the request is entitled to; no client → blank roles).
- * Benchmarks are no longer auto-generated at import — users add them manually or via chat.
+ * Benchmarks are no longer auto-generated at
+import — users add them manually or via chat.
  */
 import { Type } from '@google/genai';
+import { formsJson } from '@/lib/data/megas';
 import type { LlmClient } from '@/lib/ai/llm';
 import { generateJson } from '@/lib/ai/tools';
 import { championsMeta } from '@/lib/data/meta';
@@ -57,6 +59,7 @@ export async function inferTeam(
     nature: m.nature,
     sp: m.sp,
     moves: m.moves,
+    ...(formsJson(m.species, m.item) ? { megaForms: formsJson(m.species, m.item) } : {}),
   }));
 
   const prompt = `${championsMeta(ruleset)}\n\nTeam:\n${JSON.stringify(teamJson, null, 1)}\n\nReturn a one-sentence role for each of the ${members.length} Pokémon.`;

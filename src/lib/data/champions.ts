@@ -353,6 +353,12 @@ export interface FormLists {
   moveInfo: Record<string, { type: string; category: 'Physical' | 'Special' | 'Status' | ''; bp: number; desc: string }>;
   /** item name → one-line description. */
   itemDesc: Record<string, string>;
+  /** Mega Stone → the Mega forme it evolves into (only formes legal in this ruleset). */
+  megaOfStone: Record<string, string>;
+  /** Mega forme → its Mega Stone. */
+  stoneOfMega: Record<string, string>;
+  /** Mega forme → the base species that holds the stone. */
+  megaBase: Record<string, string>;
   /** ability name → one-line description. */
   abilityDesc: Record<string, string>;
 }
@@ -395,6 +401,138 @@ export function legalAbilities(name: string): string[] {
   return [...new Set([...champ, ...dex])];
 }
 
+/** True for any Mega forme name ("Dragonite-Mega", "Charizard-Mega-Y", "Absol-Mega-Z"). */
+export function isMegaSpecies(name: string | undefined): boolean {
+  return !!name && /-Mega(-[XYZ])?$/.test(name);
+}
+
+/** The species that Mega Evolves into `mega` (the table's base, else the name minus its suffix). */
+export function baseSpeciesOf(mega: string): string {
+  return MEGA_STONES[mega]?.base ?? getSpecies(mega)?.baseSpecies ?? mega.replace(/-Mega(-[XYZ])?$/, '');
+}
+
+/**
+ * Mega forme → base species + Mega Stone. Hardcoded on purpose: this is a short, closed list
+ * (all 48 Gen 6/7 Megas plus the 49 Legends: Z-A / Mega Dimension ones) and nothing downstream
+ * should depend on a dex package agreeing with it. Species names are Showdown's hyphenated ones;
+ * stone names match Showdown's items.ts and Bulbapedia's Mega Stone list. Formes outside the
+ * Champions pool are harmless here (formLists only exposes pool species). Rayquaza-Mega needs no
+ * stone and is omitted. Several stones are shared: Meowsticite (M/F), Magearnite, Tatsugirinite —
+ * the stone→forme map keeps the first (plain) forme for those.
+ */
+export const MEGA_STONES: Record<string, { base: string; stone: string }> = {
+  'Abomasnow-Mega': { base: 'Abomasnow', stone: 'Abomasite' },
+  'Absol-Mega': { base: 'Absol', stone: 'Absolite' },
+  'Absol-Mega-Z': { base: 'Absol', stone: 'Absolite Z' },
+  'Aerodactyl-Mega': { base: 'Aerodactyl', stone: 'Aerodactylite' },
+  'Aggron-Mega': { base: 'Aggron', stone: 'Aggronite' },
+  'Alakazam-Mega': { base: 'Alakazam', stone: 'Alakazite' },
+  'Altaria-Mega': { base: 'Altaria', stone: 'Altarianite' },
+  'Ampharos-Mega': { base: 'Ampharos', stone: 'Ampharosite' },
+  'Audino-Mega': { base: 'Audino', stone: 'Audinite' },
+  'Banette-Mega': { base: 'Banette', stone: 'Banettite' },
+  'Barbaracle-Mega': { base: 'Barbaracle', stone: 'Barbaracite' },
+  'Baxcalibur-Mega': { base: 'Baxcalibur', stone: 'Baxcalibrite' },
+  'Beedrill-Mega': { base: 'Beedrill', stone: 'Beedrillite' },
+  'Blastoise-Mega': { base: 'Blastoise', stone: 'Blastoisinite' },
+  'Blaziken-Mega': { base: 'Blaziken', stone: 'Blazikenite' },
+  'Camerupt-Mega': { base: 'Camerupt', stone: 'Cameruptite' },
+  'Chandelure-Mega': { base: 'Chandelure', stone: 'Chandelurite' },
+  'Charizard-Mega-X': { base: 'Charizard', stone: 'Charizardite X' },
+  'Charizard-Mega-Y': { base: 'Charizard', stone: 'Charizardite Y' },
+  'Chesnaught-Mega': { base: 'Chesnaught', stone: 'Chesnaughtite' },
+  'Chimecho-Mega': { base: 'Chimecho', stone: 'Chimechite' },
+  'Clefable-Mega': { base: 'Clefable', stone: 'Clefablite' },
+  'Crabominable-Mega': { base: 'Crabominable', stone: 'Crabominite' },
+  'Darkrai-Mega': { base: 'Darkrai', stone: 'Darkranite' },
+  'Delphox-Mega': { base: 'Delphox', stone: 'Delphoxite' },
+  'Diancie-Mega': { base: 'Diancie', stone: 'Diancite' },
+  'Dragalge-Mega': { base: 'Dragalge', stone: 'Dragalgite' },
+  'Dragonite-Mega': { base: 'Dragonite', stone: 'Dragoninite' },
+  'Drampa-Mega': { base: 'Drampa', stone: 'Drampanite' },
+  'Eelektross-Mega': { base: 'Eelektross', stone: 'Eelektrossite' },
+  'Emboar-Mega': { base: 'Emboar', stone: 'Emboarite' },
+  'Excadrill-Mega': { base: 'Excadrill', stone: 'Excadrite' },
+  'Falinks-Mega': { base: 'Falinks', stone: 'Falinksite' },
+  'Feraligatr-Mega': { base: 'Feraligatr', stone: 'Feraligite' },
+  'Floette-Mega': { base: 'Floette-Eternal', stone: 'Floettite' },
+  'Froslass-Mega': { base: 'Froslass', stone: 'Froslassite' },
+  'Gallade-Mega': { base: 'Gallade', stone: 'Galladite' },
+  'Garchomp-Mega': { base: 'Garchomp', stone: 'Garchompite' },
+  'Garchomp-Mega-Z': { base: 'Garchomp', stone: 'Garchompite Z' },
+  'Gardevoir-Mega': { base: 'Gardevoir', stone: 'Gardevoirite' },
+  'Gengar-Mega': { base: 'Gengar', stone: 'Gengarite' },
+  'Glalie-Mega': { base: 'Glalie', stone: 'Glalitite' },
+  'Glimmora-Mega': { base: 'Glimmora', stone: 'Glimmoranite' },
+  'Golisopod-Mega': { base: 'Golisopod', stone: 'Golisopite' },
+  'Golurk-Mega': { base: 'Golurk', stone: 'Golurkite' },
+  'Greninja-Mega': { base: 'Greninja', stone: 'Greninjite' },
+  'Gyarados-Mega': { base: 'Gyarados', stone: 'Gyaradosite' },
+  'Hawlucha-Mega': { base: 'Hawlucha', stone: 'Hawluchanite' },
+  'Heatran-Mega': { base: 'Heatran', stone: 'Heatranite' },
+  'Heracross-Mega': { base: 'Heracross', stone: 'Heracronite' },
+  'Houndoom-Mega': { base: 'Houndoom', stone: 'Houndoominite' },
+  'Kangaskhan-Mega': { base: 'Kangaskhan', stone: 'Kangaskhanite' },
+  'Latias-Mega': { base: 'Latias', stone: 'Latiasite' },
+  'Latios-Mega': { base: 'Latios', stone: 'Latiosite' },
+  'Lopunny-Mega': { base: 'Lopunny', stone: 'Lopunnite' },
+  'Lucario-Mega': { base: 'Lucario', stone: 'Lucarionite' },
+  'Lucario-Mega-Z': { base: 'Lucario', stone: 'Lucarionite Z' },
+  'Magearna-Mega': { base: 'Magearna', stone: 'Magearnite' },
+  'Magearna-Original-Mega': { base: 'Magearna-Original', stone: 'Magearnite' },
+  'Malamar-Mega': { base: 'Malamar', stone: 'Malamarite' },
+  'Manectric-Mega': { base: 'Manectric', stone: 'Manectite' },
+  'Mawile-Mega': { base: 'Mawile', stone: 'Mawilite' },
+  'Medicham-Mega': { base: 'Medicham', stone: 'Medichamite' },
+  'Meganium-Mega': { base: 'Meganium', stone: 'Meganiumite' },
+  'Meowstic-F-Mega': { base: 'Meowstic-F', stone: 'Meowsticite' },
+  'Meowstic-M-Mega': { base: 'Meowstic', stone: 'Meowsticite' },
+  'Metagross-Mega': { base: 'Metagross', stone: 'Metagrossite' },
+  'Mewtwo-Mega-X': { base: 'Mewtwo', stone: 'Mewtwonite X' },
+  'Mewtwo-Mega-Y': { base: 'Mewtwo', stone: 'Mewtwonite Y' },
+  'Pidgeot-Mega': { base: 'Pidgeot', stone: 'Pidgeotite' },
+  'Pinsir-Mega': { base: 'Pinsir', stone: 'Pinsirite' },
+  'Pyroar-Mega': { base: 'Pyroar', stone: 'Pyroarite' },
+  'Raichu-Mega-X': { base: 'Raichu', stone: 'Raichunite X' },
+  'Raichu-Mega-Y': { base: 'Raichu', stone: 'Raichunite Y' },
+  'Sableye-Mega': { base: 'Sableye', stone: 'Sablenite' },
+  'Salamence-Mega': { base: 'Salamence', stone: 'Salamencite' },
+  'Sceptile-Mega': { base: 'Sceptile', stone: 'Sceptilite' },
+  'Scizor-Mega': { base: 'Scizor', stone: 'Scizorite' },
+  'Scolipede-Mega': { base: 'Scolipede', stone: 'Scolipite' },
+  'Scovillain-Mega': { base: 'Scovillain', stone: 'Scovillainite' },
+  'Scrafty-Mega': { base: 'Scrafty', stone: 'Scraftinite' },
+  'Sharpedo-Mega': { base: 'Sharpedo', stone: 'Sharpedonite' },
+  'Skarmory-Mega': { base: 'Skarmory', stone: 'Skarmorite' },
+  'Slowbro-Mega': { base: 'Slowbro', stone: 'Slowbronite' },
+  'Staraptor-Mega': { base: 'Staraptor', stone: 'Staraptite' },
+  'Starmie-Mega': { base: 'Starmie', stone: 'Starminite' },
+  'Steelix-Mega': { base: 'Steelix', stone: 'Steelixite' },
+  'Swampert-Mega': { base: 'Swampert', stone: 'Swampertite' },
+  'Tatsugiri-Curly-Mega': { base: 'Tatsugiri', stone: 'Tatsugirinite' },
+  'Tatsugiri-Droopy-Mega': { base: 'Tatsugiri-Droopy', stone: 'Tatsugirinite' },
+  'Tatsugiri-Stretchy-Mega': { base: 'Tatsugiri-Stretchy', stone: 'Tatsugirinite' },
+  'Tyranitar-Mega': { base: 'Tyranitar', stone: 'Tyranitarite' },
+  'Venusaur-Mega': { base: 'Venusaur', stone: 'Venusaurite' },
+  'Victreebel-Mega': { base: 'Victreebel', stone: 'Victreebelite' },
+  'Zeraora-Mega': { base: 'Zeraora', stone: 'Zeraorite' },
+  'Zygarde-Mega': { base: 'Zygarde-Complete', stone: 'Zygardite' },
+};
+
+/** Stone ↔ Mega forme lookups over MEGA_STONES (lowercased stone keys). Built once. */
+let stoneMaps: { megaOfStone: Map<string, string>; stoneOfMega: Map<string, string> } | null = null;
+export function megaStoneMaps(): { megaOfStone: Map<string, string>; stoneOfMega: Map<string, string> } {
+  if (stoneMaps) return stoneMaps;
+  const megaOfStone = new Map<string, string>();
+  const stoneOfMega = new Map<string, string>();
+  for (const [mega, { stone }] of Object.entries(MEGA_STONES)) {
+    megaOfStone.set(stone.toLowerCase(), mega);
+    stoneOfMega.set(mega, stone);
+  }
+  stoneMaps = { megaOfStone, stoneOfMega };
+  return stoneMaps;
+}
+
 /** Everything the calc form's dropdowns need for one ruleset, in one server-side call. */
 export function formLists(reg: RulesetId = DEFAULT_RULESET): FormLists {
   const species = listSpecies(reg);
@@ -421,6 +559,19 @@ export function formLists(reg: RulesetId = DEFAULT_RULESET): FormLists {
   const items = listItems(reg);
   const abilities = listAbilities();
 
+  const maps = megaStoneMaps();
+  const megaOfStone: Record<string, string> = {};
+  const stoneOfMega: Record<string, string> = {};
+  const megaBase: Record<string, string> = {};
+  for (const s of species) {
+    const stone = maps.stoneOfMega.get(s);
+    if (!stone) continue;
+    const stoneName = items.find((i) => i.toLowerCase() === stone.toLowerCase()) ?? stone;
+    megaOfStone[stoneName] = s;
+    stoneOfMega[s] = stoneName;
+    megaBase[s] = baseSpeciesOf(s);
+  }
+
   return {
     regulation: reg,
     species,
@@ -434,6 +585,9 @@ export function formLists(reg: RulesetId = DEFAULT_RULESET): FormLists {
     speciesIsMega,
     moveInfo,
     itemDesc: Object.fromEntries(items.map((i) => [i, dexText('items', i)])),
+    megaOfStone,
+    stoneOfMega,
+    megaBase,
     abilityDesc: Object.fromEntries(abilities.map((a) => [a, dexText('abilities', a)])),
   };
 }

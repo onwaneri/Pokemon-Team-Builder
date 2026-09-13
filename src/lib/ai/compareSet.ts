@@ -14,6 +14,7 @@ import { Type } from '@google/genai';
 import type { LlmClient } from '@/lib/ai/llm';
 import { fetchFormatRankings, resolveUsageFormat } from '@/lib/data/usage';
 import { isLegalSpecies, getSpecies } from '@/lib/data/champions';
+import { describeForms } from '@/lib/data/megas';
 import { championsMeta } from '@/lib/data/meta';
 import { buildSetFromUsage, generateJson } from '@/lib/ai/tools';
 import { getRuleset, DEFAULT_RULESET, type RulesetId } from '@/lib/rulesets';
@@ -56,7 +57,8 @@ function describeFocus(f: FocusMon): string {
   const types = data ? data.types.join('/') : '?';
   const bs = data ? `HP ${data.baseStats.hp} / Atk ${data.baseStats.atk} / Def ${data.baseStats.def} / SpA ${data.baseStats.spa} / SpD ${data.baseStats.spd} / Spe ${data.baseStats.spe}` : 'unknown base stats';
   const sp = Object.entries(f.sp ?? {}).filter(([, v]) => v && v > 0).map(([k, v]) => `${k}:${v}`).join('/') || 'none';
-  return `${f.species} (${types}; base ${bs}) @ ${f.item || '—'} | ${f.ability || '—'} | ${f.nature || 'Hardy'} | SP ${sp} | ${(f.moves ?? []).filter(Boolean).join(' / ') || 'no moves'}`;
+  const forms = describeForms(f.species, f.item);
+  return `${f.species} (${types}; base ${bs}) @ ${f.item || '—'} | ${f.ability || '—'} | ${f.nature || 'Hardy'} | SP ${sp} | ${(f.moves ?? []).filter(Boolean).join(' / ') || 'no moves'}${forms ? `\n  ${forms}` : ''}`;
 }
 
 const responseSchema = {

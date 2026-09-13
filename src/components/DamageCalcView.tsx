@@ -318,18 +318,18 @@ function SetEditor({ title, side, set, onChange, lists, moveResults, activeKey, 
   const forms = megaFormsFor(set.species, set.item, lists);
   function changeSpecies(species: string) {
     const abilities = lists.speciesAbilities[species] ?? [];
-    onChange({ ...set, species, ability: abilities[0] ?? '', item: lists.stoneOfMega[species] ?? '', moves: ['', '', '', ''] });
+    onChange({ ...set, species, ability: abilities[0] ?? '', item: '', moves: ['', '', '', ''] });
   }
   function switchForme(species: string) {
     if (!forms) return;
     onChange({ ...set, species, item: forms.stone, ability: abilityForForme(set.ability, species, lists) });
   }
   function changeItem(item: string) {
-    if (forms && set.species === forms.mega && item !== forms.stone) {
-      onChange({ ...set, species: forms.base, item, ability: abilityForForme(set.ability, forms.base, lists) });
-      return;
-    }
-    onChange({ ...set, item });
+    const baseSpecies = forms ? forms.base : set.species;
+    const mega = lists.megaOfStone[item];
+    const target = mega && lists.megaBase[mega] === baseSpecies ? mega : baseSpecies;
+    if (target === set.species) { onChange({ ...set, item }); return; }
+    onChange({ ...set, species: target, item, ability: abilityForForme(set.ability, target, lists) });
   }
   function setMove(index: number, value: string) {
     const moves = padMoves(set.moves);
@@ -363,6 +363,7 @@ function SetEditor({ title, side, set, onChange, lists, moveResults, activeKey, 
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4, flexWrap: 'wrap' }}>
             <span style={{ fontSize: 16, fontWeight: 900, color: '#eaeaf8', whiteSpace: 'nowrap' }}>{set.species}</span>
             {isMega && <MegaBadge small />}
+            {forms && <MegaFormToggle small forms={forms} current={set.species} onSwitch={switchForme} />}
           </div>
           <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
             {types.map((t) => <TypePill key={t} type={t} small />)}
@@ -372,14 +373,8 @@ function SetEditor({ title, side, set, onChange, lists, moveResults, activeKey, 
 
       {/* Species picker (collapsed to combobox) */}
       <div style={{ marginBottom: 10 }}>
-        <Combobox value={set.species} onChange={changeSpecies} options={lists.species} placeholder="Species" renderOption={(name) => speciesOptionNode(name, lists)} />
+        <Combobox value={forms ? forms.base : set.species} onChange={changeSpecies} options={lists.species} placeholder="Species" renderOption={(name) => speciesOptionNode(name, lists)} />
       </div>
-
-      {forms && (
-        <div style={{ marginBottom: 11 }}>
-          <MegaFormToggle compact forms={forms} current={set.species} lists={lists} sp={set.sp} nature={set.nature} onSwitch={switchForme} />
-        </div>
-      )}
 
       {/* Ability + Item */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginBottom: 11 }}>

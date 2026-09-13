@@ -254,7 +254,7 @@ export default function SpeedTierView({ team, lists, state, onChange }: {
           <div style={{ flex: 1 }} />
           <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
             <div style={{ width: 170 }}>
-              <Combobox value={addSpecies} onChange={setAddSpecies} options={lists.species} placeholder="Add opponent…" />
+              <Combobox value={addSpecies} onChange={setAddSpecies} options={lists.speciesAll} placeholder="Add opponent…" />
             </div>
             <button onClick={addOpponent} disabled={!addSpecies || !lists.speciesStats[addSpecies]}
               style={{ padding: '6px 13px', borderRadius: 8, background: '#6366f1', color: 'white', border: 'none', fontSize: 12, fontWeight: 800, cursor: addSpecies ? 'pointer' : 'not-allowed', opacity: addSpecies ? 1 : 0.45 }}>

@@ -237,8 +237,7 @@ function SlotWorkspace({ mon: draft, update, lists, onPasteImport, natureNag }: 
     const abilities = lists.speciesAbilities[species] ?? [];
     const base = lists.speciesStats[species];
     const computedStats = base ? calcChampionsStats(base, draft.sp, draft.nature) : draft.computedStats;
-    // Picking a Mega forme directly means holding its stone; nothing else is legal for it.
-    update({ ...draft, species, ability: abilities[0] ?? '', item: lists.stoneOfMega[species] ?? '', computedStats });
+    update({ ...draft, species, ability: abilities[0] ?? '', item: '', computedStats });
   }
   /** Show the other forme: same spread, same stone, the forme's own typing/ability/base stats. */
   function switchForme(species: string) {
@@ -248,14 +247,15 @@ function SlotWorkspace({ mon: draft, update, lists, onPasteImport, natureNag }: 
     update({ ...draft, species, item: forms.stone, ability: abilityForForme(draft.ability, species, lists), computedStats });
   }
   function changeItem(item: string) {
-    // A Mega forme without its stone cannot exist; taking the stone away shows the base forme.
-    if (forms && draft.species === forms.mega && item !== forms.stone) {
-      const base = lists.speciesStats[forms.base];
-      const computedStats = base ? calcChampionsStats(base, draft.sp, draft.nature) : draft.computedStats;
-      update({ ...draft, species: forms.base, item, ability: abilityForForme(draft.ability, forms.base, lists), computedStats });
-      return;
-    }
-    update({ ...draft, item });
+    // Attaching the species' own stone puts the slot into its Mega forme; taking it away (or any
+    // other item) brings the base forme back. The slot is both formes while the stone is held.
+    const baseSpecies = forms ? forms.base : draft.species;
+    const mega = lists.megaOfStone[item];
+    const target = mega && lists.megaBase[mega] === baseSpecies ? mega : baseSpecies;
+    if (target === draft.species) { update({ ...draft, item }); return; }
+    const base = lists.speciesStats[target];
+    const computedStats = base ? calcChampionsStats(base, draft.sp, draft.nature) : draft.computedStats;
+    update({ ...draft, species: target, item, ability: abilityForForme(draft.ability, target, lists), computedStats });
   }
   function changeNature(nature: string) {
     update({ ...draft, nature, computedStats: recompute(draft.sp, nature) });
@@ -350,6 +350,7 @@ function SlotWorkspace({ mon: draft, update, lists, onPasteImport, natureNag }: 
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
               <span style={{ fontSize: 21, fontWeight: 900, color: '#eaeaf8', letterSpacing: '-0.4px', whiteSpace: 'nowrap' }}>{draft.species}</span>
               {lists.speciesIsMega[draft.species] && <MegaBadge />}
+              {forms && <MegaFormToggle forms={forms} current={draft.species} onSwitch={switchForme} />}
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap', marginBottom: 5 }}>
               {(lists.speciesTypes[draft.species] ?? []).map((t) => <TypePill key={t} type={t} />)}
@@ -414,13 +415,8 @@ function SlotWorkspace({ mon: draft, update, lists, onPasteImport, natureNag }: 
         {/* Species */}
         <div>
           <div style={fieldLabel}>Species</div>
-          <Combobox value={draft.species} onChange={changeSpecies} options={lists.species} placeholder="Species" renderOption={(name) => speciesOptionNode(name, lists)} />
+          <Combobox value={forms ? forms.base : draft.species} onChange={changeSpecies} options={lists.species} placeholder="Species" renderOption={(name) => speciesOptionNode(name, lists)} />
         </div>
-
-        {/* Both formes of a Mega-capable Pokémon */}
-        {forms && (
-          <MegaFormToggle forms={forms} current={draft.species} lists={lists} sp={draft.sp} nature={draft.nature} onSwitch={switchForme} />
-        )}
 
         {/* Ability + Item */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 11 }}>

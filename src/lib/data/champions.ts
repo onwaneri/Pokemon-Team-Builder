@@ -336,7 +336,10 @@ export function listNatures(): string[] {
 export interface FormLists {
   /** Which ruleset these lists describe. */
   regulation: RulesetId;
+  /** Pickable species: base formes only. A Mega is reached by attaching its stone, never picked. */
   species: string[];
+  /** Every legal species including Mega formes (opponent pickers, lookups). */
+  speciesAll: string[];
   moves: string[];
   items: string[];
   abilities: string[];
@@ -535,7 +538,7 @@ export function megaStoneMaps(): { megaOfStone: Map<string, string>; stoneOfMega
 
 /** Everything the calc form's dropdowns need for one ruleset, in one server-side call. */
 export function formLists(reg: RulesetId = DEFAULT_RULESET): FormLists {
-  const species = listSpecies(reg);
+  const species = listSpecies(reg); // full list; every per-species map below is keyed on it
   const speciesAbilities = Object.fromEntries(species.map((s) => [s, legalAbilities(s)]));
 
   const speciesStats: Record<string, StatSpread> = {};
@@ -574,7 +577,8 @@ export function formLists(reg: RulesetId = DEFAULT_RULESET): FormLists {
 
   return {
     regulation: reg,
-    species,
+    species: species.filter((s) => !isMegaSpecies(s)),
+    speciesAll: species,
     moves,
     items,
     abilities,

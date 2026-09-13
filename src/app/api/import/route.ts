@@ -1,3 +1,5 @@
+import { calcSpecies } from '@/lib/data/megas';
+import { getSpecies } from '@/lib/data/champions';
 import { NextResponse } from 'next/server';
 import { parseTeam } from '@/lib/showdown/import';
 import { computeStats } from '@/lib/calc/engine';
@@ -26,6 +28,15 @@ export async function POST(req: Request) {
   const { members, issues } = parseTeam(body.paste, ruleset);
   if (members.length === 0) {
     return NextResponse.json({ error: 'No valid sets found in the paste.' }, { status: 400 });
+  }
+  // "Charizard @ Charizardite X" is a Mega-capable slot: hold it in the Mega forme (the editor's
+  // forme toggle shows either), with the Mega's ability.
+  for (const m of members) {
+    const forme = calcSpecies(m.species, m.item, ruleset);
+    if (forme !== m.species) {
+      m.species = forme;
+      m.ability = getSpecies(forme)?.abilities?.[0] ?? m.ability;
+    }
   }
 
   // Species↔move check (Gen 9 Showdown learnsets grafted onto Champions; unknown moves pass).

@@ -11,7 +11,9 @@ providers) calls those engines as tools and explains the results.
 ## What it does
 
 - **Team editor.** Six slots with species, item, ability, nature, moves, and Stat Points (SP,
-  the Champions replacement for EVs: 0–32 per stat, 66 total). Move pickers are filtered by
+  the Champions replacement for EVs: 0–32 per stat, 66 total). The nature dropdown names the
+  stats each nature raises and lowers, and typing `+` or `-` next to a stat's SP number (either
+  side, "+12" or "12+") makes that stat the raised or lowered one. Move pickers are filtered by
   learnset, popular sets from Pikalytics apply with one click, and every set passes a legality
   gate for the active regulation.
 - **Damage calc.** Attacker, defender, field, all 16 rolls, KO chance, Smogon-style description.

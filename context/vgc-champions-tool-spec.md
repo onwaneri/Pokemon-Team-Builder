@@ -124,7 +124,11 @@ Visitors choose a provider; the server chooses the model per job.
   percent of max HP, KO chance, description, caveat flags for speed ties and Multiscale),
   `compareSpeed`, and `computeStats`. Champions SP is passed through the calc's `evs` field.
 - `src/lib/calc/sp.ts` documents the stat formula (HP = base + SP + 75; other =
-  floor(nature × (base + SP + 20))) and clamps every SP input to the budget.
+  floor(nature × (base + SP + 20))) and clamps every SP input to the budget. It also owns the
+  nature helpers the UI shares: `natureEffect` / `natureLabel` (which stats a nature raises and
+  lowers, shown in every nature dropdown), `natureFor` (the nature for a raised/lowered pair, the
+  missing side filled from the spread: lowest-SP stat for the drop, highest for the raise), and
+  `parseSpInput` (a typed SP value with an optional `+` / `-` before or after the number).
 - `src/lib/data/usage.ts` fetches `https://www.pikalytics.com/ai/pokedex/{format}/{pokemon}`
   as markdown and parses it. Out of each species page: headline usage, win rate and W-L(-T)
   record; common moves, items and abilities; the most common teammates (co-occurrence, the
@@ -234,7 +238,9 @@ Views (`WorkspaceView`): `team`, `calc`, `speed`.
 
 - **Team.** Six slot editors with learnset-filtered move pickers, move and item descriptions,
   popular-set chips from Pikalytics, the shared `SpEditor` (slider plus number per stat, Max
-  button, live computed stat, remaining budget), a role line, and the benchmark list. The team
+  button, live computed stat, remaining budget; a `+` or `-` typed on either side of the number
+  sets that stat as the nature's raised or lowered one, in the calc editors too), a role line,
+  and the benchmark list. The team
   builder panel shows while slots are open.
 - **Damage calc.** Two set editors and a field panel; move list with all 16 rolls. Compare
   chips suggest opponents relevant to the focus Pokémon.

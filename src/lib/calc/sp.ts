@@ -10,6 +10,10 @@
  *   HP    = base + SP + 75            (unless base === 1, e.g. Shedinja)
  *   other = floor(nature × (base + SP + 20))     nature ∈ {1.1, 1.0, 0.9}
  * IVs and level are not used — Level 50 and IV 31 are baked into the constants.
+ *
+ * Also the nature helpers the UI shares: which stats a nature moves (`natureEffect`, `natureLabel`),
+ * the nature for a chosen raise/lower pair (`natureFor`), and the parser for the typed SP field,
+ * which accepts a `+` or `-` on either side of the number to set that pair (`parseSpInput`).
  */
 
 export type Stat = 'hp' | 'atk' | 'def' | 'spa' | 'spd' | 'spe';
@@ -37,6 +41,69 @@ const NATURES: Record<string, [Stat?, Stat?]> = {
   calm: ['spd', 'atk'], gentle: ['spd', 'def'], sassy: ['spd', 'spe'], careful: ['spd', 'spa'],
   quirky: [],
 };
+
+/** Which stats a nature raises and lowers. Neutral natures (and unknown names) return neither. */
+export function natureEffect(nature: string | undefined): { plus?: Stat; minus?: Stat } {
+  if (!nature) return {};
+  const [plus, minus] = NATURES[nature.toLowerCase()] ?? [];
+  if (!plus || !minus || plus === minus) return {};
+  return { plus, minus };
+}
+
+/** "Adamant (+Atk −SpA)" / "Hardy (neutral)": the dropdown label for a nature. */
+export function natureLabel(nature: string): string {
+  const { plus, minus } = natureEffect(nature);
+  return plus && minus ? `${nature} (+${STAT_LABEL[plus]} −${STAT_LABEL[minus]})` : `${nature} (neutral)`;
+}
+
+const NEUTRAL_NATURE = 'Hardy';
+
+/**
+ * The nature that raises `plus` and lowers `minus`. Both undefined, or the same stat, gives a
+ * neutral nature: the current one if it is already neutral, otherwise Hardy. Only one side given
+ * fills the other from the spread: the lowered stat is the non-HP stat with the least SP
+ * (preferring SpA, then Atk on ties, since an unused attacking stat is the usual dump), and the
+ * raised stat is the one with the most SP (preferring Spe, Atk, SpA). Returns a capitalised name
+ * from the same list the nature dropdown shows.
+ */
+export function natureFor(plus: Stat | undefined, minus: Stat | undefined, sp: SpSpread = {}, current?: string): string {
+  if (plus === 'hp') plus = undefined;
+  if (minus === 'hp') minus = undefined;
+  if (plus && plus === minus) plus = minus = undefined;
+  if (plus && !minus) minus = pickStat(['spa', 'atk', 'spd', 'def', 'spe'].filter((s) => s !== plus) as Stat[], sp, 'min');
+  if (minus && !plus) plus = pickStat(['spe', 'atk', 'spa', 'def', 'spd'].filter((s) => s !== minus) as Stat[], sp, 'max');
+  if (!plus || !minus) {
+    return current && natureEffect(current).plus === undefined && NATURES[current.toLowerCase()] ? current : NEUTRAL_NATURE;
+  }
+  for (const [name, [p, m]] of Object.entries(NATURES)) {
+    if (p === plus && m === minus) return name[0].toUpperCase() + name.slice(1);
+  }
+  return NEUTRAL_NATURE;
+}
+
+function pickStat(candidates: Stat[], sp: SpSpread, mode: 'min' | 'max'): Stat {
+  let best = candidates[0];
+  for (const s of candidates) {
+    const v = sp[s] ?? 0;
+    const b = sp[best] ?? 0;
+    if (mode === 'min' ? v < b : v > b) best = s;
+  }
+  return best;
+}
+
+/**
+ * Parse a typed SP field. Accepts a plain number, or a number with `+` / `-` / `−` before or after
+ * it ("+12", "12+", "-4", "4-"); the sign alone is also accepted. `value` is absent when no digits
+ * were typed, `sign` when no sign was. Anything else returns null.
+ */
+export function parseSpInput(raw: string): { value?: number; sign?: '+' | '-' } | null {
+  const m = /^\s*([+\-−])?\s*(\d*)\s*([+\-−])?\s*$/.exec(raw);
+  if (!m) return null;
+  const signChar = m[3] || m[1];
+  const sign = signChar ? (signChar === '+' ? '+' : '-') : undefined;
+  const value = m[2] ? Number(m[2]) : undefined;
+  return { value, sign };
+}
 
 export function natureMultiplier(nature: string | undefined, stat: Stat): number {
   if (!nature || stat === 'hp') return 1;

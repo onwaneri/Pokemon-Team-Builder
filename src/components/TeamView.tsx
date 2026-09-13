@@ -2,7 +2,7 @@
 
 import { useRef, useState, type ReactNode } from 'react';
 import type { Benchmark, BenchmarkStatus, TeamMon } from '@/lib/benchmarks/types';
-import { calcChampionsStats, type SpSpread } from '@/lib/calc/sp';
+import { calcChampionsStats, natureLabel, type SpSpread } from '@/lib/calc/sp';
 import { padMoves } from '@/lib/moves';
 import Combobox from '@/components/Combobox';
 import SpEditor from '@/components/SpEditor';
@@ -225,8 +225,8 @@ function SlotWorkspace({ mon: draft, update, lists, onPasteImport }: {
     const computedStats = base ? calcChampionsStats(base, draft.sp, draft.nature) : draft.computedStats;
     update({ ...draft, species, ability: abilities[0] ?? '', item: '', computedStats });
   }
-  function changeNature(nature: string) {
-    update({ ...draft, nature, computedStats: recompute(draft.sp, nature) });
+  function changeNature(nature: string, sp: SpSpread = draft.sp) {
+    update({ ...draft, nature, sp, computedStats: recompute(sp, nature) });
   }
   function changeMove(index: number, value: string) {
     const moves = [...draft.moves];
@@ -430,7 +430,7 @@ function SlotWorkspace({ mon: draft, update, lists, onPasteImport }: {
         <div>
           <div style={fieldLabel}>Nature</div>
           <select value={draft.nature} onChange={(e) => changeNature(e.target.value)} style={fieldInput as React.CSSProperties}>
-            {lists.natures.map((n) => <option key={n} value={n}>{n}</option>)}
+            {lists.natures.map((n) => <option key={n} value={n}>{natureLabel(n)}</option>)}
           </select>
         </div>
 
@@ -472,6 +472,7 @@ function SlotWorkspace({ mon: draft, update, lists, onPasteImport }: {
           nature={draft.nature}
           baseStats={baseStats}
           onChange={(sp) => update({ ...draft, sp, computedStats: recompute(sp, draft.nature) })}
+          onNatureChange={changeNature}
         />
 
         {/* Benchmarks */}

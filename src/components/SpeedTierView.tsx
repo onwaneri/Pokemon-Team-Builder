@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import type { TeamMon } from '@/lib/benchmarks/types';
 import type { FormLists } from '@/lib/data/champions';
-import { calcChampionsStat, SP_PER_STAT_MAX } from '@/lib/calc/sp';
+import { calcChampionsStat, natureLabel, SP_PER_STAT_MAX } from '@/lib/calc/sp';
 import { useUsage } from '@/hooks/useUsage';
 import Combobox from '@/components/Combobox';
 import CompareStrip from '@/components/CompareStrip';
@@ -353,7 +353,7 @@ function OppCard({ entry, natures, onPatch, onRemove, priColor }: {
       <div style={{ display: 'flex', gap: 4, width: '100%', alignItems: 'center' }}>
         <select value={entry.nature} onChange={(e) => onPatch({ nature: e.target.value })}
           style={{ flex: 1, minWidth: 0, fontSize: 10, background: 'rgba(4,4,14,0.9)', border: `1px solid ${natColor}55`, borderRadius: 5, color: natColor, padding: '3px 3px', fontWeight: 700, colorScheme: 'dark' } as React.CSSProperties}>
-          {natures.map((n) => <option key={n} value={n}>{n}</option>)}
+          {natures.map((n) => <option key={n} value={n}>{natureLabel(n)}</option>)}
         </select>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flexShrink: 0 }}>
           <span style={{ fontSize: 8, fontWeight: 800, color: '#40406a', letterSpacing: '0.3px', marginBottom: 1 }}>SPE SP</span>

@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, type ReactNode } from 'react';
 import type { TeamMon } from '@/lib/benchmarks/types';
-import { natureLabel, type SpSpread, type StatSpread } from '@/lib/calc/sp';
+import { natureLabel, isCompleteNature, type SpSpread, type StatSpread } from '@/lib/calc/sp';
 import { padMoves } from '@/lib/moves';
 import Combobox from '@/components/Combobox';
 import type { PopularSet } from '@/lib/data/usage';
@@ -398,6 +398,7 @@ function SetEditor({ title, side, set, onChange, lists, moveResults, activeKey, 
       <div style={{ marginBottom: 11 }}>
         <div style={fieldLabel}>Nature</div>
         <select value={set.nature} onChange={(e) => onChange({ ...set, nature: e.target.value })} style={fieldBox as React.CSSProperties}>
+          {!isCompleteNature(set.nature) && <option value={set.nature}>{natureLabel(set.nature)}</option>}
           {lists.natures.map((n) => <option key={n} value={n}>{natureLabel(n)}</option>)}
         </select>
       </div>
@@ -472,7 +473,7 @@ function SetEditor({ title, side, set, onChange, lists, moveResults, activeKey, 
           nature={set.nature}
           baseStats={lists.speciesStats[set.species]}
           onChange={(sp) => onChange({ ...set, sp })}
-          onNatureChange={(nature, sp) => onChange({ ...set, nature, sp })}
+          onNatureChange={(nature) => onChange({ ...set, nature })}
         />
       </div>
 

@@ -7,11 +7,12 @@
  * Max button, and the live computed stat. Every input path goes through clampSpToBudget, so a
  * stat can never exceed 32 and the spread can never exceed 66; the header shows what is left.
  *
- * The typed field also sets the nature when `onNatureChange` is given: a `+` or `-` typed before
- * or after the number ("+12", "12+", "-0", "0-") makes that stat the raised or lowered one, and
- * `natureFor` resolves the pair to a nature name. Typing a sign on its own changes only the nature.
+ * When `onNatureChange` is given, every non-HP row also carries a `+` / `−` toggle pair that makes
+ * that stat the nature's raised or lowered one. The two halves are independent: raising Atk
+ * before choosing what to lower leaves the nature incomplete ("+Atk"), which the header flags
+ * until the other half is picked. Callers gate saving and leaving the Pokémon on that (see
+ * `natureIssue` in lib/calc/sp).
  */
-import { useState } from 'react';
 import {
   STAT_ORDER,
   STAT_LABEL,
@@ -19,10 +20,9 @@ import {
   SP_TOTAL_MAX,
   clampSpToBudget,
   calcChampionsStats,
-  natureMultiplier,
   natureEffect,
   natureFor,
-  parseSpInput,
+  natureIssue,
   type Stat,
   type SpSpread,
   type StatSpread,
@@ -35,26 +35,25 @@ export default function SpEditor({
   onChange,
   onNatureChange,
   compact = false,
+  nag = false,
 }: {
   sp: SpSpread;
   nature: string;
   /** Base stats for the live computed column; omitted → column hidden. */
   baseStats?: StatSpread;
   onChange: (sp: SpSpread) => void;
-  /**
-   * Enables `+` / `-` in the typed field to pick the raised / lowered stat. Receives the spread as
-   * of the same keystroke; apply both, since `onChange` is not also called.
-   */
-  onNatureChange?: (nature: string, sp: SpSpread) => void;
+  /** Enables the per-stat `+` / `−` toggles. */
+  onNatureChange?: (nature: string) => void;
   /** Tighter rows for the calc panels. */
   compact?: boolean;
+  /** Emphasize the incomplete-nature warning (the caller just refused to leave this Pokémon). */
+  nag?: boolean;
 }) {
   const total = STAT_ORDER.reduce((sum, s) => sum + (sp[s] ?? 0), 0);
   const remaining = SP_TOTAL_MAX - total;
   const computed = baseStats ? calcChampionsStats(baseStats, sp, nature) : null;
-  // Text of the typed field while it has focus, so a half-typed "+1" is not snapped back to the
-  // stored value mid-keystroke. Cleared on blur.
-  const [draft, setDraft] = useState<{ stat: Stat; text: string } | null>(null);
+  const { plus, minus } = natureEffect(nature);
+  const issue = onNatureChange ? natureIssue(nature) : null;
 
   function set(stat: Stat, raw: number) {
     const next = clampSpToBudget(sp, stat, raw);
@@ -62,41 +61,24 @@ export default function SpEditor({
     onChange({ ...sp, [stat]: next });
   }
 
-  function typed(stat: Stat, text: string) {
-    const parsed = parseSpInput(text);
-    if (!parsed) return; // keep the previous draft; the keystroke was not a digit or sign
-    let nextSp = sp;
-    let applied: number | undefined;
-    if (parsed.value !== undefined || text.trim() === '') {
-      applied = clampSpToBudget(sp, stat, parsed.value ?? 0);
-      if (applied !== (sp[stat] ?? 0)) nextSp = { ...sp, [stat]: applied };
-    }
-    let nextNature = nature;
-    if (parsed.sign && onNatureChange && stat !== 'hp') {
-      const { plus, minus } = natureEffect(nature);
-      nextNature = parsed.sign === '+'
-        ? natureFor(stat, minus === stat ? undefined : minus, nextSp, nature)
-        : natureFor(plus === stat ? undefined : plus, stat, nextSp, nature);
-    }
-    // One callback per keystroke: the nature callback carries the spread too, because callers
-    // build the next state from a closed-over draft and two calls would overwrite each other.
-    if (nextNature !== nature) onNatureChange!(nextNature, nextSp);
-    else if (nextSp !== sp) onChange(nextSp);
-    // Show what was typed, except that a value the budget clamped shows the clamped number.
-    const clamped = parsed.value !== undefined && applied !== undefined && applied !== parsed.value;
-    setDraft({ stat, text: clamped ? String(applied) : text });
+  /** Toggle a stat as the raised (`+`) or lowered (`−`) one; clicking the active side clears it. */
+  function toggleNature(stat: Stat, side: '+' | '-') {
+    if (!onNatureChange || stat === 'hp') return;
+    const next = side === '+'
+      ? natureFor(plus === stat ? undefined : stat, minus === stat ? undefined : minus, nature)
+      : natureFor(plus === stat ? undefined : plus, minus === stat ? undefined : stat, nature);
+    if (next !== nature) onNatureChange(next);
   }
 
   const labelStyle: React.CSSProperties = { fontSize: 9, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 1, color: '#40406a' };
   const rowGap = compact ? 4 : 6;
+  const toggleBase: React.CSSProperties = { width: 18, height: 18, padding: 0, borderRadius: 5, fontSize: 11, fontWeight: 900, lineHeight: 1, cursor: 'pointer', flexShrink: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' };
 
   return (
     <div>
       {/* Header: total, remaining bar, reset */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: compact ? 6 : 8 }}>
-        <div style={labelStyle} title={onNatureChange ? 'Type + or − before or after a number to make that stat the nature\u2019s raised or lowered one' : undefined}>
-          Stat Points{onNatureChange && <span style={{ color: '#35355a', letterSpacing: 0.5, marginLeft: 6 }}>+/− sets nature</span>}
-        </div>
+        <div style={labelStyle}>Stat Points</div>
         <div style={{ flex: 1, height: 5, borderRadius: 3, background: 'rgba(255,255,255,0.05)', overflow: 'hidden' }} title={`${total} of ${SP_TOTAL_MAX} used`}>
           <div style={{ width: `${(total / SP_TOTAL_MAX) * 100}%`, height: '100%', background: total > SP_TOTAL_MAX ? '#f87171' : '#6366f1', transition: 'width 0.15s' }} />
         </div>
@@ -113,11 +95,29 @@ export default function SpEditor({
         </button>
       </div>
 
+      {issue && (
+        <div
+          role="status"
+          style={{
+            marginBottom: compact ? 6 : 8,
+            padding: '5px 9px',
+            borderRadius: 7,
+            fontSize: 10,
+            fontWeight: 700,
+            lineHeight: 1.4,
+            border: `1px solid ${nag ? 'rgba(248,113,113,0.5)' : 'rgba(251,191,36,0.3)'}`,
+            background: nag ? 'rgba(239,68,68,0.1)' : 'rgba(180,130,20,0.08)',
+            color: nag ? '#fca5a5' : '#fbbf24',
+          }}
+        >
+          Nature incomplete: {issue}. Use the {issue.startsWith('pick a stat to lower') ? '−' : issue.startsWith('pick a stat to raise') ? '+' : '+ / −'} buttons.
+        </div>
+      )}
+
       <div style={{ display: 'flex', flexDirection: 'column', gap: rowGap }}>
         {STAT_ORDER.map((s) => {
-          const mult = natureMultiplier(nature, s);
-          const boost = s !== 'hp' && mult > 1;
-          const drop = s !== 'hp' && mult < 1;
+          const boost = s !== 'hp' && plus === s;
+          const drop = s !== 'hp' && minus === s;
           const val = sp[s] ?? 0;
           const color = boost ? '#34d399' : drop ? '#f87171' : '#6366f1';
           const labelColor = boost ? '#34d399' : drop ? '#f87171' : '#6868a8';
@@ -125,9 +125,31 @@ export default function SpEditor({
           const pct = (val / SP_PER_STAT_MAX) * 100;
           return (
             <div key={s} style={{ display: 'flex', alignItems: 'center', gap: compact ? 6 : 8 }}>
-              <span style={{ width: compact ? 30 : 36, fontSize: 11, fontWeight: 800, color: labelColor, flexShrink: 0 }} title={boost ? `${nature} raises ${STAT_LABEL[s]}` : drop ? `${nature} lowers ${STAT_LABEL[s]}` : undefined}>
+              <span style={{ width: compact ? 30 : 36, fontSize: 11, fontWeight: 800, color: labelColor, flexShrink: 0 }} title={boost ? `${STAT_LABEL[s]} is raised by the nature` : drop ? `${STAT_LABEL[s]} is lowered by the nature` : undefined}>
                 {STAT_LABEL[s]}{boost ? '+' : drop ? '−' : ''}
               </span>
+              {onNatureChange && (
+                <span style={{ display: 'inline-flex', gap: 3, flexShrink: 0, visibility: s === 'hp' ? 'hidden' : 'visible' }} aria-hidden={s === 'hp'}>
+                  <button
+                    type="button"
+                    onClick={() => toggleNature(s, '+')}
+                    aria-pressed={boost}
+                    title={boost ? `Stop raising ${STAT_LABEL[s]}` : `Raise ${STAT_LABEL[s]} (nature +)`}
+                    style={{ ...toggleBase, border: `1px solid ${boost ? '#34d399' : 'rgba(52,211,153,0.3)'}`, background: boost ? '#34d399' : 'transparent', color: boost ? '#04140c' : '#34d399' }}
+                  >
+                    +
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => toggleNature(s, '-')}
+                    aria-pressed={drop}
+                    title={drop ? `Stop lowering ${STAT_LABEL[s]}` : `Lower ${STAT_LABEL[s]} (nature −)`}
+                    style={{ ...toggleBase, border: `1px solid ${drop ? '#f87171' : 'rgba(248,113,113,0.3)'}`, background: drop ? '#f87171' : 'transparent', color: drop ? '#1a0606' : '#f87171' }}
+                  >
+                    −
+                  </button>
+                </span>
+              )}
               {baseStats && (
                 <span style={{ width: 24, textAlign: 'right', fontSize: 10, color: '#35355a', flexShrink: 0, fontWeight: 600 }} title="Base stat">{baseStats[s]}</span>
               )}
@@ -149,16 +171,15 @@ export default function SpEditor({
                 } as React.CSSProperties}
               />
               <input
-                type="text"
-                inputMode="numeric"
-                autoComplete="off"
-                value={draft?.stat === s ? draft.text : String(val)}
-                onChange={(e) => typed(s, e.target.value)}
+                type="number"
+                min={0}
+                max={SP_PER_STAT_MAX}
+                value={val}
+                onChange={(e) => set(s, e.target.value === '' ? 0 : Number(e.target.value))}
                 onFocus={(e) => e.currentTarget.select()}
-                onBlur={() => setDraft(null)}
                 onWheel={(e) => e.currentTarget.blur()}
                 aria-label={`${STAT_LABEL[s]} stat points, typed`}
-                title={onNatureChange && s !== 'hp' ? `0–${SP_PER_STAT_MAX}. Add + or − (before or after the number) to make ${STAT_LABEL[s]} the raised or lowered stat.` : `0–${SP_PER_STAT_MAX}`}
+                title={`0–${SP_PER_STAT_MAX}`}
                 style={{ width: 40, textAlign: 'center', background: 'rgba(4,4,14,0.85)', border: '1px solid rgba(99,102,241,0.18)', borderRadius: 6, padding: '3px 2px', color: val > 0 ? '#e0e0f4' : '#545480', fontWeight: 800, fontSize: 11, outline: 'none', colorScheme: 'dark', flexShrink: 0 } as React.CSSProperties}
               />
               <button

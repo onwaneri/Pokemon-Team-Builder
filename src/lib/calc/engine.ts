@@ -16,7 +16,7 @@
  */
 import { calculate, Pokemon, Move, Field, Generations, toID } from '@smogon/calc';
 import type { GenerationNum } from '@smogon/calc';
-import type { Stat, SpSpread, StatSpread } from './sp';
+import { isCompleteNature, type Stat, type SpSpread, type StatSpread } from './sp';
 import { speciesOverrides, moveOverrides } from '@/lib/data/champions';
 
 export const CHAMPIONS_GEN = 0 as GenerationNum; // 0 = Pokémon Champions in @smogon/calc
@@ -108,7 +108,8 @@ function buildMon(mon: MonInput): Pokemon {
     level: 50,
     ability: mon.ability,
     item: mon.item,
-    nature: mon.nature,
+    // The editor's in-between "+Atk" state is not a nature the engine knows; treat it as neutral.
+    nature: isCompleteNature(mon.nature) ? mon.nature : 'Hardy',
     evs: mon.sp,
     boosts: mon.boosts,
   };

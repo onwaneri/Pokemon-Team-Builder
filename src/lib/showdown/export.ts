@@ -20,7 +20,7 @@
  *   - Blank line between mons; null slots are skipped.
  */
 import type { TeamMon } from '@/lib/benchmarks/types';
-import { STAT_ORDER, STAT_LABEL } from '@/lib/calc/sp';
+import { STAT_ORDER, STAT_LABEL, isCompleteNature } from '@/lib/calc/sp';
 
 function exportMon(mon: TeamMon): string {
   const lines: string[] = [];
@@ -65,7 +65,7 @@ function exportMon(mon: TeamMon): string {
   }
 
   // ── Nature (always present) ────────────────────────────────────────────────
-  lines.push(`${mon.nature} Nature`);
+  lines.push(`${isCompleteNature(mon.nature) ? mon.nature : 'Hardy'} Nature`);
 
   // ── Moves ─────────────────────────────────────────────────────────────────
   for (const move of mon.moves) {

@@ -45,7 +45,7 @@ import type {
   UpdateCalcAction,
   UpdateSpeedTierAction,
 } from '@/lib/ai/types';
-import { calcChampionsStats, ZERO_STATS, type SpSpread } from '@/lib/calc/sp';
+import { calcChampionsStats, ZERO_STATS, type SpSpread, natureIssue, isCompleteNature } from '@/lib/calc/sp';
 import { padMoves } from '@/lib/moves';
 import { teamStore as localTeamStore, teamHash } from '@/lib/library/store';
 import { useAuth } from '@/components/AuthProvider';
@@ -264,6 +264,8 @@ export default function Workspace({ lists }: { lists: FormLists }) {
 
   async function persistCurrentTeam(name: string) {
     if (!team) return;
+    const incomplete = team.filter((m): m is TeamMon => !!m && !isCompleteNature(m.nature));
+    if (incomplete.length) throw new Error(`Finish the nature on ${incomplete.map((m) => m.species).join(', ')} first (a stat is raised or lowered without its pair).`);
     const now = Date.now();
     const hash = teamHash(team);
     let savedTeam: SavedTeam;
@@ -689,8 +691,24 @@ export default function Workspace({ lists }: { lists: FormLists }) {
     if (m.item && !lists.items.includes(m.item)) rulesetProblems.push(`${rules.short} · ${m.species}: ${m.item} is not legal`);
     for (const mv of m.moves) if (mv && !lists.moveInfo[mv]) rulesetProblems.push(`${rules.short} · ${m.species}: ${mv} is not available`);
   }
-  /** Ruleset problems first (prefixed with the regulation), then the importer's legality notes. */
-  const allIssues: string[] = [...rulesetProblems, ...issues.map((i) => i.message)];
+  // Half-picked natures (a raised stat with nothing lowered, or the reverse) block saving,
+  // exporting, and the calc screens until the other half is chosen.
+  const natureProblems = (team ?? []).flatMap((m) => {
+    const issue = m ? natureIssue(m.nature) : null;
+    return issue ? [`${m!.species}: nature incomplete — ${issue}`] : [];
+  });
+  /** Ruleset problems first (prefixed with the regulation), then natures, then the importer's legality notes. */
+  const allIssues: string[] = [...rulesetProblems, ...natureProblems, ...issues.map((i) => i.message)];
+
+  // The refusal notice clears itself once the nature is completed.
+  if (saveError?.startsWith('Finish the nature first') && !natureProblems.length) setSaveError(null);
+
+  /** Refuse an action while a nature is half-picked; the reason lands in the red notice row. */
+  function requireCompleteNatures(what: string): boolean {
+    if (!natureProblems.length) return true;
+    setSaveError(`Finish the nature first (${natureProblems.join('; ')}) before you ${what}.`);
+    return false;
+  }
 
   const filledCount = team ? team.filter((m): m is TeamMon => m !== null).length : 0;
 
@@ -816,10 +834,10 @@ export default function Workspace({ lists }: { lists: FormLists }) {
             <TabBtn active={view === 'team'} onClick={() => setView('team')}>
               Team
             </TabBtn>
-            <TabBtn active={view === 'calc'} onClick={() => setView('calc')}>
+            <TabBtn active={view === 'calc'} onClick={() => { if (requireCompleteNatures('open the Damage Calc')) setView('calc'); }}>
               Damage Calc
             </TabBtn>
-            <TabBtn active={view === 'speed'} onClick={() => setView('speed')}>
+            <TabBtn active={view === 'speed'} onClick={() => { if (requireCompleteNatures('open Speed Tiers')) setView('speed'); }}>
               Speed Tiers
             </TabBtn>
             <div style={{ width: 1, height: 18, background: 'rgba(99,102,241,0.18)', flexShrink: 0 }} />
@@ -828,8 +846,8 @@ export default function Workspace({ lists }: { lists: FormLists }) {
               onToggle={() => setMenuOpen((o) => !o)}
               onClose={() => setMenuOpen(false)}
               items={[
-                { label: 'Save', hint: currentTeamId ? undefined : 'new', onClick: handleSaveButton, disabled: !team },
-                { label: 'Export', onClick: () => { if (team) setExportPaste(exportTeamPaste(team)); }, disabled: !team },
+                { label: 'Save', hint: currentTeamId ? undefined : 'new', onClick: () => { if (requireCompleteNatures('save')) handleSaveButton(); }, disabled: !team },
+                { label: 'Export', onClick: () => { if (team && requireCompleteNatures('export')) setExportPaste(exportTeamPaste(team)); }, disabled: !team },
                 { label: 'Import (replace team)', onClick: openImportModal },
               ]}
             />

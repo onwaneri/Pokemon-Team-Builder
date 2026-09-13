@@ -12,8 +12,13 @@
  * IVs and level are not used — Level 50 and IV 31 are baked into the constants.
  *
  * Also the nature helpers the UI shares: which stats a nature moves (`natureEffect`, `natureLabel`),
- * the nature for a chosen raise/lower pair (`natureFor`), and the parser for the typed SP field,
- * which accepts a `+` or `-` on either side of the number to set that pair (`parseSpInput`).
+ * the nature for a chosen raise/lower pair (`natureFor`), and the incomplete-nature gate
+ * (`isCompleteNature`, `natureIssue`).
+ *
+ * Incomplete natures: the editor lets a player raise a stat before choosing what to lower (or the
+ * reverse). That in-between state is stored as a pseudo nature, "+Atk" or "-SpA", so every stat
+ * computation and label reflects it. It is never a legal nature: saving, exporting, the calc
+ * engine, and leaving the Pokémon all require a real one (see `isCompleteNature`).
  */
 
 export type Stat = 'hp' | 'atk' | 'def' | 'spa' | 'spd' | 'spe';
@@ -42,73 +47,70 @@ const NATURES: Record<string, [Stat?, Stat?]> = {
   quirky: [],
 };
 
+const NEUTRAL_NATURE = 'Hardy';
+const PSEUDO_NATURE = /^([+\-−])(atk|def|spa|spd|spe)$/i;
+
+/** True for the 25 real natures. False for the editor's in-between "+Atk" / "-SpA" states. */
+export function isCompleteNature(nature: string | undefined): boolean {
+  return !!nature && nature.toLowerCase() in NATURES;
+}
+
+/** Why a nature cannot be kept as-is, for the UI gate; null when it is a real nature. */
+export function natureIssue(nature: string | undefined): string | null {
+  if (isCompleteNature(nature)) return null;
+  const { plus, minus } = natureEffect(nature);
+  if (plus) return `pick a stat to lower (${STAT_LABEL[plus]} is raised)`;
+  if (minus) return `pick a stat to raise (${STAT_LABEL[minus]} is lowered)`;
+  return 'pick a nature';
+}
+
 /** Which stats a nature raises and lowers. Neutral natures (and unknown names) return neither. */
 export function natureEffect(nature: string | undefined): { plus?: Stat; minus?: Stat } {
   if (!nature) return {};
+  const pseudo = PSEUDO_NATURE.exec(nature);
+  if (pseudo) {
+    const stat = pseudo[2].toLowerCase() as Stat;
+    return pseudo[1] === '+' ? { plus: stat } : { minus: stat };
+  }
   const [plus, minus] = NATURES[nature.toLowerCase()] ?? [];
   if (!plus || !minus || plus === minus) return {};
   return { plus, minus };
 }
 
-/** "Adamant (+Atk −SpA)" / "Hardy (neutral)": the dropdown label for a nature. */
+/** "Adamant (+Atk −SpA)" / "Hardy (neutral)" / "+Atk (pick a stat to lower)": a nature's label. */
 export function natureLabel(nature: string): string {
   const { plus, minus } = natureEffect(nature);
-  return plus && minus ? `${nature} (+${STAT_LABEL[plus]} −${STAT_LABEL[minus]})` : `${nature} (neutral)`;
+  if (plus && minus) return `${nature} (+${STAT_LABEL[plus]} −${STAT_LABEL[minus]})`;
+  if (!isCompleteNature(nature)) {
+    if (plus) return `+${STAT_LABEL[plus]} (pick a stat to lower)`;
+    if (minus) return `−${STAT_LABEL[minus]} (pick a stat to raise)`;
+  }
+  return `${nature} (neutral)`;
 }
 
-const NEUTRAL_NATURE = 'Hardy';
-
 /**
- * The nature that raises `plus` and lowers `minus`. Both undefined, or the same stat, gives a
- * neutral nature: the current one if it is already neutral, otherwise Hardy. Only one side given
- * fills the other from the spread: the lowered stat is the non-HP stat with the least SP
- * (preferring SpA, then Atk on ties, since an unused attacking stat is the usual dump), and the
- * raised stat is the one with the most SP (preferring Spe, Atk, SpA). Returns a capitalised name
- * from the same list the nature dropdown shows.
+ * The nature for a raise/lower pair. Both set → the real nature name. One set → the pseudo
+ * nature ("+Atk" / "-SpA") that keeps that half until the other is chosen. Neither (or the same
+ * stat on both sides) → a neutral nature: `current` if it is already neutral, else Hardy.
  */
-export function natureFor(plus: Stat | undefined, minus: Stat | undefined, sp: SpSpread = {}, current?: string): string {
+export function natureFor(plus: Stat | undefined, minus: Stat | undefined, current?: string): string {
   if (plus === 'hp') plus = undefined;
   if (minus === 'hp') minus = undefined;
   if (plus && plus === minus) plus = minus = undefined;
-  if (plus && !minus) minus = pickStat(['spa', 'atk', 'spd', 'def', 'spe'].filter((s) => s !== plus) as Stat[], sp, 'min');
-  if (minus && !plus) plus = pickStat(['spe', 'atk', 'spa', 'def', 'spd'].filter((s) => s !== minus) as Stat[], sp, 'max');
-  if (!plus || !minus) {
-    return current && natureEffect(current).plus === undefined && NATURES[current.toLowerCase()] ? current : NEUTRAL_NATURE;
+  if (plus && minus) {
+    for (const [name, [p, m]] of Object.entries(NATURES)) {
+      if (p === plus && m === minus) return name[0].toUpperCase() + name.slice(1);
+    }
+    return NEUTRAL_NATURE;
   }
-  for (const [name, [p, m]] of Object.entries(NATURES)) {
-    if (p === plus && m === minus) return name[0].toUpperCase() + name.slice(1);
-  }
-  return NEUTRAL_NATURE;
-}
-
-function pickStat(candidates: Stat[], sp: SpSpread, mode: 'min' | 'max'): Stat {
-  let best = candidates[0];
-  for (const s of candidates) {
-    const v = sp[s] ?? 0;
-    const b = sp[best] ?? 0;
-    if (mode === 'min' ? v < b : v > b) best = s;
-  }
-  return best;
-}
-
-/**
- * Parse a typed SP field. Accepts a plain number, or a number with `+` / `-` / `−` before or after
- * it ("+12", "12+", "-4", "4-"); the sign alone is also accepted. `value` is absent when no digits
- * were typed, `sign` when no sign was. Anything else returns null.
- */
-export function parseSpInput(raw: string): { value?: number; sign?: '+' | '-' } | null {
-  const m = /^\s*([+\-−])?\s*(\d*)\s*([+\-−])?\s*$/.exec(raw);
-  if (!m) return null;
-  const signChar = m[3] || m[1];
-  const sign = signChar ? (signChar === '+' ? '+' : '-') : undefined;
-  const value = m[2] ? Number(m[2]) : undefined;
-  return { value, sign };
+  if (plus) return `+${STAT_LABEL[plus]}`;
+  if (minus) return `-${STAT_LABEL[minus]}`;
+  return current && isCompleteNature(current) && natureEffect(current).plus === undefined ? current : NEUTRAL_NATURE;
 }
 
 export function natureMultiplier(nature: string | undefined, stat: Stat): number {
   if (!nature || stat === 'hp') return 1;
-  const [plus, minus] = NATURES[nature.toLowerCase()] ?? [];
-  if (plus === stat && minus === stat) return 1;
+  const { plus, minus } = natureEffect(nature);
   if (plus === stat) return 1.1;
   if (minus === stat) return 0.9;
   return 1;

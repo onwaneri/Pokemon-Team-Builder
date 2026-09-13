@@ -1,8 +1,8 @@
 /**
  * Mega Stone ↔ Mega forme mapping, derived from @pkmn/dex (`requiredItem` on every Mega forme the
- * dex knows, including the Champions "-Z" formes). Server-only: used by the team builder to keep
- * a team to one Mega and to turn "base species holding its stone" into the Mega forme the engine
- * actually calcs with.
+ * dex knows, including the Champions "-Z" formes). Server-only: used by the team builder to turn
+ * "base species holding its stone" into the Mega forme the engine actually calcs with. Teams may
+ * carry any number of Megas (only one Mega Evolves per battle); nothing here limits that.
  */
 import { Dex } from '@pkmn/dex';
 import { listSpecies } from './champions';
@@ -41,9 +41,4 @@ export function isMegaStone(item: string | undefined): boolean {
 export function stoneForMega(species: string): string | null {
   if (!megaToStone) build();
   return megaToStone!.get(species) ?? null;
-}
-
-/** A set counts as the team's Mega if it is a Mega forme or holds a Mega Stone. */
-export function usesMega(set: { species: string; item?: string }): boolean {
-  return /-Mega(-[XYZ])?$/.test(set.species) || isMegaStone(set.item);
 }

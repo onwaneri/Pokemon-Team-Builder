@@ -184,8 +184,11 @@ export default function DamageCalcView({ lists, team, state, onChange, runToken 
       {/* Main calc area */}
       <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 10 }}>
 
-      {/* Attacker / Defender panels */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+      {/* Attacker / Defender panels. minmax(0, 1fr), not 1fr: a bare 1fr column refuses to shrink
+          below its content's min width, and the popular-set chip strip and nowrap description
+          lines inside each panel are far wider than half the page, so the columns would blow
+          past the viewport and push the defender off-screen. */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 10 }}>
         <SetEditor
           title="Attacker" side="atk" set={attacker}
           onChange={setAttacker}
@@ -348,7 +351,7 @@ function SetEditor({ title, side, set, onChange, lists, moveResults, activeKey, 
   const fieldBox: React.CSSProperties = { background: 'rgba(4,4,14,0.85)', border: '1px solid rgba(99,102,241,0.16)', borderRadius: 7, padding: '6px 9px', fontSize: 11, fontWeight: 700, color: '#c0c0e4', outline: 'none', width: '100%', colorScheme: 'dark' };
 
   return (
-    <div style={{ borderRadius: 14, border: `1.5px solid ${panelBorder}`, background: 'rgba(12,12,28,0.85)', padding: 14 }}>
+    <div style={{ borderRadius: 14, border: `1.5px solid ${panelBorder}`, background: 'rgba(12,12,28,0.85)', padding: 14, minWidth: 0 }}>
       {/* Panel header */}
       <div style={{ fontSize: 10, fontWeight: 900, textTransform: 'uppercase', letterSpacing: '1.2px', color: accentColor, marginBottom: 11 }}>
         {isAtk ? '⚔' : '🛡'} {title}
@@ -377,7 +380,7 @@ function SetEditor({ title, side, set, onChange, lists, moveResults, activeKey, 
       </div>
 
       {/* Ability + Item */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginBottom: 11 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 6, marginBottom: 11 }}>
         <div>
           <div style={fieldLabel}>Ability</div>
           <Combobox

@@ -18,7 +18,7 @@ export default function PopularSets({ sets, lists, onApply, small }: {
 }) {
   if (!sets.length) return null;
   return (
-    <div>
+    <div style={{ minWidth: 0 }}>
       <div style={{ fontSize: 9, fontWeight: 800, textTransform: 'uppercase', letterSpacing: small ? '0.8px' : 1, color: '#40406a', marginBottom: small ? 5 : 6 }}>
         Popular sets · Pikalytics
       </div>

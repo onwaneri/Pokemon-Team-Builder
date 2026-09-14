@@ -9,7 +9,7 @@
  * ranked usage on a species in the current format is learnable by definition. Verdicts are
  * three-state and rejection requires positive evidence:
  *   - 'yes'     → the move appears in the forme → base-species → prevo learnset chain, OR it has
- *                 usage on this species in the ruleset's Pikalytics format.
+ *                 usage on this species (a Mega: on its base species) in the ruleset's format.
  *   - 'no'      → the dex teaches this move to at least one species (so it has coverage for it),
  *                 this species' chain provably lacks it, and usage shows nobody running it.
  *   - 'unknown' → the species or move is unknown to the dex, or the move exists but is taught
@@ -75,11 +75,17 @@ function chainMoveIds(speciesName: string): Promise<Set<string> | null> {
  */
 async function observedMoveIds(speciesName: string, reg: RulesetId): Promise<Set<string>> {
   const ids = new Set<string>();
-  const usage = await fetchUsage(speciesName, reg);
-  for (const entry of usage?.moves ?? []) {
-    if (!(entry.pct > 0)) continue;
-    const move = Dex.moves.get(entry.name);
-    if (move?.exists) ids.add(move.id);
+  // Pikalytics files a Mega's data under its base species (the "-mega" page is an empty
+  // placeholder), and a Mega's move pool is its base forme's, so the base page is the evidence.
+  const base = speciesName.replace(/-Mega(?:-[XYZ])?$/i, '');
+  const pages = base === speciesName ? [speciesName] : [base, speciesName];
+  for (const page of pages) {
+    const usage = await fetchUsage(page, reg);
+    for (const entry of usage?.moves ?? []) {
+      if (!(entry.pct > 0)) continue;
+      const move = Dex.moves.get(entry.name);
+      if (move?.exists) ids.add(move.id);
+    }
   }
   return ids;
 }

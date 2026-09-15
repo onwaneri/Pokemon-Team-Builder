@@ -51,6 +51,7 @@ import { teamStore as localTeamStore, teamHash } from '@/lib/library/store';
 import { useAuth } from '@/components/AuthProvider';
 import { aiFetch } from '@/lib/aiFetch';
 import { exportTeamPaste } from '@/lib/showdown/export';
+import { useIsMobile } from '@/hooks/useIsMobile';
 import { suggestTeamNames, isPlaceholderName } from '@/lib/library/teamNames';
 import type { SavedTeam } from '@/lib/library/types';
 
@@ -154,7 +155,10 @@ export default function Workspace({ lists }: { lists: FormLists }) {
   const [error, setError] = useState<string | null>(null);
   const [issuesExpanded, setIssuesExpanded] = useState(false);
   const [reevaluating, setReevaluating] = useState<Set<number>>(new Set());
-  const [chatOpen, setChatOpen] = useState(true);
+  // Open by default beside the editor; on a phone it is a full-screen sheet that starts closed.
+  const isMobile = useIsMobile();
+  const [chatOpenState, setChatOpen] = useState<boolean | null>(null);
+  const chatOpen = chatOpenState ?? !isMobile;
 
   // ─── Screen state the assistant can read and edit ─────────────────────────
   // Damage Calc and Speed Tier settings live here (not in the views) so natural-language changes
@@ -810,7 +814,7 @@ export default function Workspace({ lists }: { lists: FormLists }) {
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: `1fr ${chatOpen ? '320px' : '42px'}`,
+          gridTemplateColumns: isMobile ? '1fr' : `1fr ${chatOpen ? '320px' : '42px'}`,
           transition: 'grid-template-columns 0.3s cubic-bezier(0.4,0,0.2,1)',
           height: '100%',
           overflow: 'hidden',
@@ -819,6 +823,7 @@ export default function Workspace({ lists }: { lists: FormLists }) {
       >
         {/* Left: workspace */}
         <div
+          className="m-tight"
           style={{
             overflowY: 'auto',
             overflowX: 'hidden',
@@ -830,7 +835,7 @@ export default function Workspace({ lists }: { lists: FormLists }) {
           }}
         >
           {/* Toolbar: ← Library | team name | Team · Damage Calc · Speed Tiers | ⋯ */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+          <div className="m-wrap" style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
             <button
               onClick={goToLibrary}
               style={{
@@ -860,6 +865,7 @@ export default function Workspace({ lists }: { lists: FormLists }) {
               </button>
             )}
             <div style={{ flex: 1 }} />
+            <div className="editor-tabs" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <TabBtn active={view === 'team'} onClick={() => setView('team')}>
               Team
             </TabBtn>
@@ -880,6 +886,7 @@ export default function Workspace({ lists }: { lists: FormLists }) {
                 { label: 'Import (replace team)', onClick: openImportModal },
               ]}
             />
+            </div>
           </div>
 
           {/* Everything the current ruleset or the importer flagged, in one row */}
@@ -973,21 +980,49 @@ export default function Workspace({ lists }: { lists: FormLists }) {
           )}
         </div>
 
-        {/* Right: chat panel */}
-        <ChatPanel
-          team={chatTeam}
-          teamName={currentTeamName}
-          view={view}
-          onAction={handleChatAction}
-          isOpen={chatOpen}
-          onToggle={() => setChatOpen((s) => !s)}
-          messages={chat.messages}
-          setMessages={chat.setMessages}
-          loading={chat.loading}
-          error={chat.error}
-          onSend={chat.send}
-        />
+        {/* Right: chat panel (a column beside the editor; on phones a full-screen sheet below) */}
+        {!isMobile && (
+          <ChatPanel
+            team={chatTeam}
+            teamName={currentTeamName}
+            view={view}
+            onAction={handleChatAction}
+            isOpen={chatOpen}
+            onToggle={() => setChatOpen(!chatOpen)}
+            messages={chat.messages}
+            setMessages={chat.setMessages}
+            loading={chat.loading}
+            error={chat.error}
+            onSend={chat.send}
+          />
+        )}
       </div>
+
+      {isMobile && (chatOpen ? (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 900, background: '#0b0b1a', display: 'flex', flexDirection: 'column' }}>
+          <ChatPanel
+            team={chatTeam}
+            teamName={currentTeamName}
+            view={view}
+            onAction={handleChatAction}
+            isOpen
+            onToggle={() => setChatOpen(false)}
+            messages={chat.messages}
+            setMessages={chat.setMessages}
+            loading={chat.loading}
+            error={chat.error}
+            onSend={chat.send}
+          />
+        </div>
+      ) : (
+        <button
+          onClick={() => setChatOpen(true)}
+          aria-label="Open the AI assistant"
+          style={{ position: 'fixed', right: 14, bottom: 'calc(14px + env(safe-area-inset-bottom))', zIndex: 800, padding: '10px 16px', borderRadius: 999, background: '#6366f1', color: 'white', border: 'none', fontSize: 13, fontWeight: 900, boxShadow: '0 8px 24px rgba(0,0,0,0.5)', cursor: 'pointer' }}
+        >
+          ✦ Assistant{chat.loading ? '…' : ''}
+        </button>
+      ))}
 
       {exportModal}
       {importModal}

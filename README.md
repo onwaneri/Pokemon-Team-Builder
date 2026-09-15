@@ -49,6 +49,9 @@ providers) calls those engines as tools and explains the results.
   `GET /api/showdown/replay-analysis` today; not wired into the Showdown panel yet.
 - **Regulations.** Reg M-B (the base Champions dex) and Reg M-C (Sep 9 – Dec 2, 2026). A
   regulation is a delta over the base dex; see `src/lib/rulesets/`.
+- **Phone layout.** Below 768px the header compacts, two-column blocks stack, the team rails
+  become rows, and the assistant is a full-screen sheet behind a floating button
+  (`src/hooks/useIsMobile.ts` plus the `m-*` utilities in `globals.css`).
 
 ## AI access
 

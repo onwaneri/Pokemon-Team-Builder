@@ -151,7 +151,7 @@ export default function SpEditor({
                 </span>
               )}
               {baseStats && (
-                <span style={{ width: 24, textAlign: 'right', fontSize: 10, color: '#35355a', flexShrink: 0, fontWeight: 600 }} title="Base stat">{baseStats[s]}</span>
+                <span className="m-hide" style={{ width: 24, textAlign: 'right', fontSize: 10, color: '#35355a', flexShrink: 0, fontWeight: 600 }} title="Base stat">{baseStats[s]}</span>
               )}
               <input
                 type="range"

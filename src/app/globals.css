@@ -73,3 +73,27 @@ body {
 .sp-range:focus-visible::-webkit-slider-thumb {
   box-shadow: 0 0 0 3px rgba(99,102,241,0.45);
 }
+
+/* ── Phone layout ─────────────────────────────────────────────────────────────
+   Components lay out with inline styles; these utilities override them below 768px so
+   two-column blocks stack, side rails become rows, and chrome that only makes sense with
+   room (season dates, base-stat columns) drops out. `!important` is what lets a stylesheet
+   beat an inline style. */
+@media (max-width: 767px) {
+  body { height: 100dvh; }
+  .m-1col { grid-template-columns: 1fr !important; }
+  .m-stack { flex-direction: column !important; align-items: stretch !important; }
+  .m-wrap { flex-wrap: wrap !important; }
+  .m-hide { display: none !important; }
+  .m-wrap-text { white-space: normal !important; }
+  .m-full { width: 100% !important; max-width: 100% !important; }
+  /* Room under the floating Assistant button so the last field can scroll clear of it. */
+  .m-tight { padding: 10px 10px 88px !important; }
+  .m-row-list { flex-direction: row !important; flex-wrap: wrap !important; }
+  .m-row-list > * { width: auto !important; }
+  .editor-tabs { width: 100%; }
+  .editor-tabs > button { flex: 1; padding-left: 4px !important; padding-right: 4px !important; }
+  /* iOS zooms into any focused field under 16px; keep the text size but not the zoom. */
+  input, select, textarea { font-size: 16px !important; }
+  .sp-range { min-width: 48px; }
+}

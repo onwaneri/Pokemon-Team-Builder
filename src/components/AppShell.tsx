@@ -14,6 +14,7 @@ import OptionsMenu from '@/components/OptionsMenu';
 import GuideTour from '@/components/GuideTour';
 import type { FormLists } from '@/lib/data/champions';
 import { RULESETS, RULESET_IDS, type RulesetId } from '@/lib/rulesets';
+import { useIsMobile } from '@/hooks/useIsMobile';
 
 interface RulesetStatus {
   usageFormat: string;
@@ -25,6 +26,7 @@ export default function AppShell({ listsByRuleset }: { listsByRuleset: Record<Ru
   const lists = listsByRuleset[ruleset];
   const rules = RULESETS[ruleset];
   const [status, setStatus] = useState<RulesetStatus | null>(null);
+  const isMobile = useIsMobile();
 
   // Where the usage numbers actually come from for this ruleset (a newer regulation may still be
   // served by its predecessor's Pikalytics data).
@@ -47,7 +49,7 @@ export default function AppShell({ listsByRuleset }: { listsByRuleset: Record<Ru
         className="z-20 flex shrink-0 items-center justify-between"
         style={{
           height: 52,
-          padding: '0 20px',
+          padding: isMobile ? '0 10px' : '0 20px',
           borderBottom: '1px solid rgba(99,102,241,0.18)',
           background: 'rgba(9,9,22,0.97)',
         }}
@@ -65,8 +67,8 @@ export default function AppShell({ listsByRuleset }: { listsByRuleset: Record<Ru
             </span>
           </div>
         </div>
-        <div className="flex items-center" style={{ gap: 10 }}>
-          {fallbackLabel && (
+        <div className="flex items-center" style={{ gap: isMobile ? 6 : 10 }}>
+          {fallbackLabel && !isMobile && (
             <span
               title={`Pikalytics has not published ${rules.short} usage yet. Usage percentages, popular sets, and rankings shown are ${fallbackLabel} data; Pokémon new to ${rules.short} have no usage data.`}
               style={{ fontSize: 10, fontWeight: 800, color: '#fbbf24', border: '1px solid rgba(251,191,36,0.3)', background: 'rgba(180,130,20,0.1)', borderRadius: 6, padding: '3px 8px', letterSpacing: '0.3px', whiteSpace: 'nowrap' }}
@@ -74,7 +76,7 @@ export default function AppShell({ listsByRuleset }: { listsByRuleset: Record<Ru
               usage: {fallbackLabel} data
             </span>
           )}
-          <span style={{ fontSize: 10, color: '#40406a', fontWeight: 600, whiteSpace: 'nowrap' }} title="Ranked season window">{rules.dates}</span>
+          {!isMobile && <span style={{ fontSize: 10, color: '#40406a', fontWeight: 600, whiteSpace: 'nowrap' }} title="Ranked season window">{rules.dates}</span>}
           <AiKeyControl />
           <AuthControl />
           <select
@@ -95,7 +97,7 @@ export default function AppShell({ listsByRuleset }: { listsByRuleset: Record<Ru
             } as React.CSSProperties}
           >
             {RULESET_IDS.map((id) => (
-              <option key={id} value={id}>{RULESETS[id].label}</option>
+              <option key={id} value={id}>{isMobile ? RULESETS[id].short : RULESETS[id].label}</option>
             ))}
           </select>
           <OptionsMenu />

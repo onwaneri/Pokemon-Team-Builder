@@ -341,14 +341,14 @@ function SlotWorkspace({ mon: draft, update, lists, onPasteImport, natureNag }: 
     <div style={{ borderRadius: 14, border: '1.5px solid rgba(99,102,241,0.32)', background: 'rgba(12,12,28,0.85)', padding: 16, animation: 'slideInR 0.2s ease' }}>
 
       {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14, marginBottom: 18, justifyContent: 'space-between' }}>
+      <div className="m-wrap" style={{ display: 'flex', alignItems: 'flex-start', gap: 14, marginBottom: 18, justifyContent: 'space-between' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 13, minWidth: 0, flex: 1 }}>
           <div style={{ background: 'radial-gradient(circle at 50% 65%, rgba(99,102,241,0.14), transparent 72%)', border: '1px solid rgba(99,102,241,0.16)', borderRadius: 14, width: 76, height: 76, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
             <MonSprite species={draft.species} size={68} />
           </div>
           <div style={{ minWidth: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 21, fontWeight: 900, color: '#eaeaf8', letterSpacing: '-0.4px', whiteSpace: 'nowrap' }}>{draft.species}</span>
+              <span className="m-wrap-text" style={{ fontSize: 21, fontWeight: 900, color: '#eaeaf8', letterSpacing: '-0.4px', whiteSpace: 'nowrap' }}>{draft.species}</span>
               {lists.speciesIsMega[draft.species] && <MegaBadge />}
               {forms && <MegaFormToggle forms={forms} current={draft.species} onSwitch={switchForme} />}
             </div>
@@ -362,7 +362,7 @@ function SlotWorkspace({ mon: draft, update, lists, onPasteImport, natureNag }: 
             </div>
           </div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0, flexWrap: 'wrap', justifyContent: 'flex-end', paddingTop: 2 }}>
+        <div className="m-full" style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0, flexWrap: 'wrap', justifyContent: 'flex-end', paddingTop: 2 }}>
           <SmBtn onClick={() => setShowPaste((s) => !s)} active={showPaste}>Paste</SmBtn>
           <SmBtn onClick={optimize} disabled={optimizeLoading || !baseStats}>{optimizeLoading ? 'Optimizing…' : 'Optimize'}</SmBtn>
         </div>
@@ -419,7 +419,7 @@ function SlotWorkspace({ mon: draft, update, lists, onPasteImport, natureNag }: 
         </div>
 
         {/* Ability + Item */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 11 }}>
+        <div className="m-1col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 11 }}>
           <div>
             <div style={fieldLabel}>Ability</div>
             {abilityOptions.length <= 1 ? (
@@ -471,7 +471,7 @@ function SlotWorkspace({ mon: draft, update, lists, onPasteImport, natureNag }: 
         {/* Moves */}
         <div>
           <div style={fieldLabel}>Moves</div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 5 }}>
+          <div className="m-1col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 5 }}>
             {[0, 1, 2, 3].map((i) => {
               const moveName = moves[i];
               const info = moveName ? lists.moveInfo[moveName] : null;

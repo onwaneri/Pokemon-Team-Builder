@@ -13,6 +13,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '@/components/AuthProvider';
 import { SignInModal } from '@/components/AuthPanel';
 import ShowdownPanel from '@/components/showdown/ShowdownPanel';
+import { useIsMobile } from '@/hooks/useIsMobile';
 import { OPEN_GUIDE_EVENT } from '@/components/GuideTour';
 
 type Modal = 'showdown' | 'signin' | null;
@@ -39,6 +40,7 @@ export default function OptionsMenu() {
   const [open, setOpen] = useState(false);
   const [modal, setModal] = useState<Modal>(null);
   const rootRef = useRef<HTMLDivElement>(null);
+  const isMobile = useIsMobile();
 
   useEffect(() => {
     if (!open) return;
@@ -63,11 +65,11 @@ export default function OptionsMenu() {
         title="Options"
         style={{ padding: '5px 10px', borderRadius: 8, border: '1px solid rgba(99,102,241,0.25)', background: open ? 'rgba(99,102,241,0.2)' : 'rgba(99,102,241,0.09)', color: '#c0c0e8', fontSize: 12, fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap' }}
       >
-        ⚙ Options
+        ⚙{isMobile ? '' : ' Options'}
       </button>
 
       {open && (
-        <div role="menu" style={{ position: 'absolute', right: 0, top: 'calc(100% + 6px)', width: 300, borderRadius: 12, border: '1px solid rgba(99,102,241,0.28)', background: 'rgba(11,11,28,0.98)', boxShadow: '0 12px 40px rgba(0,0,0,0.55)', padding: 6, zIndex: 100, display: 'flex', flexDirection: 'column', gap: 2 }}>
+        <div role="menu" style={{ position: 'absolute', right: 0, top: 'calc(100% + 6px)', width: isMobile ? 'min(300px, calc(100vw - 20px))' : 300, borderRadius: 12, border: '1px solid rgba(99,102,241,0.28)', background: 'rgba(11,11,28,0.98)', boxShadow: '0 12px 40px rgba(0,0,0,0.55)', padding: 6, zIndex: 100, display: 'flex', flexDirection: 'column', gap: 2 }}>
           <button role="menuitem" style={itemStyle} onClick={() => pick(() => setModal('showdown'))}>
             Showdown account
             <span style={hintStyle}>Link a username for ratings, replays, and one-click team import. Import from a Showdown link too.</span>

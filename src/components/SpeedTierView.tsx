@@ -206,17 +206,17 @@ export default function SpeedTierView({ team, lists, state, onChange }: {
   };
 
   return (
-    <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start', minHeight: 0 }}>
+    <div className="m-stack" style={{ display: 'flex', gap: 10, alignItems: 'flex-start', minHeight: 0 }}>
 
       {/* ── Left collapsible sidebar ── */}
-      <div style={{ flexShrink: 0, borderRadius: 12, border: '1px solid rgba(99,102,241,0.18)', background: 'rgba(12,12,28,0.85)', overflow: 'hidden', width: sidebarOpen ? 150 : 30, transition: 'width 0.2s ease', display: 'flex', flexDirection: 'column' }}>
+      <div className="m-full" style={{ flexShrink: 0, borderRadius: 12, border: '1px solid rgba(99,102,241,0.18)', background: 'rgba(12,12,28,0.85)', overflow: 'hidden', width: sidebarOpen ? 150 : 30, transition: 'width 0.2s ease', display: 'flex', flexDirection: 'column' }}>
         {sidebarOpen ? (
           <>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '9px 9px 6px' }}>
               <span style={{ fontSize: 9, fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.8px', color: '#40406a' }}>My Team</span>
               <button onClick={() => setSidebarOpen(false)} style={{ background: 'none', border: 'none', color: '#40406a', cursor: 'pointer', fontSize: 13, lineHeight: 1, padding: 0 }}>‹</button>
             </div>
-            <div style={{ padding: '0 8px 8px', display: 'flex', flexDirection: 'column', gap: 5 }}>
+            <div className="m-row-list" style={{ padding: '0 8px 8px', display: 'flex', flexDirection: 'column', gap: 5 }}>
               {filledTeam.length === 0
                 ? <div style={{ fontSize: 10, color: '#35355a', padding: '4px 0' }}>No team loaded</div>
                 : filledTeam.map((mon) => {

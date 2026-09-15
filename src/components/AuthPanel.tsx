@@ -17,6 +17,7 @@ import {
 } from 'firebase/auth';
 import { firebaseAuth } from '@/lib/firebase/client';
 import { useAuth } from '@/components/AuthProvider';
+import { useIsMobile } from '@/hooks/useIsMobile';
 
 type Tab = 'email' | 'google';
 
@@ -41,6 +42,7 @@ function friendly(e: unknown): string {
 export default function AuthControl() {
   const { user, ready, enabled, signOut } = useAuth();
   const [open, setOpen] = useState(false);
+  const isMobile = useIsMobile();
   if (!enabled) return null;
   if (!ready) return <span style={{ fontSize: 11, color: '#40406a' }}>…</span>;
 
@@ -56,10 +58,14 @@ export default function AuthControl() {
             {label.slice(0, 1).toUpperCase()}
           </span>
         )}
-        <span style={{ fontSize: 11, color: '#9090c0', fontWeight: 700, maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={label}>{label}</span>
-        <button onClick={() => signOut()} style={{ padding: '4px 10px', borderRadius: 7, border: '1px solid rgba(99,102,241,0.22)', background: 'transparent', color: '#7070a0', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
-          Sign out
-        </button>
+        {!isMobile && (
+          <>
+            <span style={{ fontSize: 11, color: '#9090c0', fontWeight: 700, maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={label}>{label}</span>
+            <button onClick={() => signOut()} style={{ padding: '4px 10px', borderRadius: 7, border: '1px solid rgba(99,102,241,0.22)', background: 'transparent', color: '#7070a0', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
+              Sign out
+            </button>
+          </>
+        )}
       </div>
     );
   }

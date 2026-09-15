@@ -6,6 +6,7 @@
  * current screen state attached, so it can answer questions or edit whichever screen is open;
  * the placeholder hints at what that screen accepts.
  */
+import { useIsMobile } from '@/hooks/useIsMobile';
 import { useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import type { TeamMon } from '@/lib/benchmarks/types';
@@ -121,6 +122,7 @@ export default function ChatPanel({
     hr: () => <hr style={{ border: 'none', borderTop: '1px solid rgba(99,102,241,0.2)', margin: '8px 0' }} />,
   };
 
+  const isMobile = useIsMobile();
   const containerStyle: React.CSSProperties = {
     borderLeft: '1px solid rgba(99,102,241,0.16)',
     background: 'rgba(7,7,18,0.92)',
@@ -128,6 +130,7 @@ export default function ChatPanel({
     flexDirection: 'column',
     overflow: 'hidden',
     minWidth: 0,
+    height: '100%',
     transition: 'opacity 0.2s ease',
   };
 
@@ -185,9 +188,9 @@ export default function ChatPanel({
           <button
             onClick={onToggle}
             title="Collapse"
-            style={{ background: 'rgba(99,102,241,0.09)', border: '1px solid rgba(99,102,241,0.2)', color: '#5050a0', cursor: 'pointer', padding: '3px 9px', borderRadius: 6, fontSize: 14, fontWeight: 700, lineHeight: 1 }}
+            style={{ background: 'rgba(99,102,241,0.09)', border: '1px solid rgba(99,102,241,0.2)', color: '#5050a0', cursor: 'pointer', padding: '3px 9px', borderRadius: 6, fontSize: isMobile ? 11 : 14, fontWeight: 700, lineHeight: 1 }}
           >
-            ›
+            {isMobile ? 'Close' : '›'}
           </button>
         </div>
       </div>

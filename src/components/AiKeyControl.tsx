@@ -10,6 +10,7 @@
  */
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { emitAiEvent, type AiDeniedEvent, type AiUsageEvent } from '@/lib/aiFetch';
+import { useIsMobile } from '@/hooks/useIsMobile';
 
 interface ProviderOption {
   id: string;
@@ -45,6 +46,7 @@ export default function AiKeyControl() {
   const [status, setStatus] = useState<AiStatus | null>(null);
   const [open, setOpen] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const isMobile = useIsMobile();
 
   const refresh = useCallback(async () => {
     try {
@@ -105,7 +107,7 @@ export default function AiKeyControl() {
         title="AI access: your free requests, or connect your own API key"
         style={{ ...btnBase, ...(warn ? { borderColor: 'rgba(251,191,36,0.4)', color: '#fbbf24', background: 'rgba(180,130,20,0.1)' } : {}) }}
       >
-        ✦ {label}
+        ✦{isMobile ? '' : ` ${label}`}
       </button>
       {open && status && (
         <AiKeyPanel

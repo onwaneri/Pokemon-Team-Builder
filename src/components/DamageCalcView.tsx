@@ -174,7 +174,7 @@ export default function DamageCalcView({ lists, team, state, onChange, runToken 
   }
 
   return (
-    <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start', animation: 'fadeUp 0.18s ease' }}>
+    <div className="m-stack" style={{ display: 'flex', gap: 12, alignItems: 'flex-start', animation: 'fadeUp 0.18s ease' }}>
 
       {/* Team sidebar (LEFT) */}
       {filledTeam.length > 0 && (
@@ -188,7 +188,7 @@ export default function DamageCalcView({ lists, team, state, onChange, runToken 
           below its content's min width, and the popular-set chip strip and nowrap description
           lines inside each panel are far wider than half the page, so the columns would blow
           past the viewport and push the defender off-screen. */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 10 }}>
+      <div className="m-1col" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 10 }}>
         <SetEditor
           title="Attacker" side="atk" set={attacker}
           onChange={setAttacker}
@@ -526,7 +526,7 @@ function TeamSidebar({ team, onSelect, isOpen, onToggle }: {
   }, [popover]);
 
   return (
-    <div ref={ref} style={{
+    <div ref={ref} className="m-full" style={{
       flexShrink: 0, borderRadius: 12, border: '1px solid rgba(99,102,241,0.18)',
       background: 'rgba(12,12,28,0.85)',
       width: isOpen ? 150 : 30, transition: 'width 0.2s ease',
@@ -538,7 +538,7 @@ function TeamSidebar({ team, onSelect, isOpen, onToggle }: {
             <span style={{ fontSize: 9, fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.8px', color: '#40406a' }}>My Team</span>
             <button onClick={onToggle} style={{ background: 'none', border: 'none', color: '#40406a', cursor: 'pointer', fontSize: 13, lineHeight: 1, padding: 0 }}>‹</button>
           </div>
-          <div style={{ padding: '0 8px 8px', display: 'flex', flexDirection: 'column', gap: 5 }}>
+          <div className="m-row-list" style={{ padding: '0 8px 8px', display: 'flex', flexDirection: 'column', gap: 5 }}>
             {team.map((mon) => (
               <div key={mon.slot} style={{ position: 'relative' }}>
                 <button

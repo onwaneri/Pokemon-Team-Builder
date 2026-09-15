@@ -342,9 +342,9 @@ export default function TeamLibrary({
   aside,
 }: TeamLibraryProps) {
   return (
-    <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 16, height: '100%', overflowY: 'auto' }}>
+    <div className="m-tight" style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 16, height: '100%', overflowY: 'auto' }}>
       {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+      <div className="m-wrap" style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
         <span style={{ fontSize: 17, fontWeight: 900, color: '#eaeaf8', letterSpacing: '-0.3px' }}>
           Team Library
         </span>

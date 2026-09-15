@@ -163,7 +163,9 @@ export default function Combobox({
         style={{
           width: '100%',
           borderRadius: 8,
-          border: '1px solid rgba(99,102,241,0.2)',
+          borderWidth: 1,
+          borderStyle: 'solid',
+          borderColor: 'rgba(99,102,241,0.2)',
           background: 'rgba(4,4,14,0.85)',
           padding: '7px 10px',
           fontSize: 12,

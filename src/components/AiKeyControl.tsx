@@ -32,7 +32,11 @@ const btnBase: React.CSSProperties = {
   fontWeight: 800,
   cursor: 'pointer',
   whiteSpace: 'nowrap',
-  border: '1px solid rgba(99,102,241,0.25)',
+  // Longhands, not the `border` shorthand: variants override borderColor, and React warns when a
+  // shorthand and its longhand change together between renders.
+  borderWidth: 1,
+  borderStyle: 'solid',
+  borderColor: 'rgba(99,102,241,0.25)',
   background: 'rgba(99,102,241,0.09)',
   color: '#c0c0e8',
 };

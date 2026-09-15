@@ -100,13 +100,13 @@ Visitors choose a provider; the server chooses the model per job.
   `AI_COOKIE_SECRET`, 90 days). It is never stored server-side and JavaScript never reads it.
   No quota applies.
 - **Free tier.** The owner's key from the environment, chosen in the order OpenAI, Gemini,
-  Anthropic, OpenRouter unless `FREE_TIER_PROVIDER` forces one. Requires a signed-in Firebase
-  account (ID token verified server-side against Google's certificates, no admin SDK).
-  Capped at `FREE_CHAT_LIMIT` requests per account (default 15). The counter lives in the
-  Firestore `aiQuota` collection through the REST API when `FIREBASE_ADMIN_*` is set, otherwise
-  in process memory. The limit and count are never sent to the browser. A failed upstream call
-  refunds the request. Anonymous visitors get a signed device cookie for identity but are asked
-  to sign in or connect a key before using the free tier.
+  Anthropic, OpenRouter unless `FREE_TIER_PROVIDER` forces one. No sign-in required. Capped at
+  `FREE_CHAT_LIMIT` requests per visitor (default 15): the Firebase uid when the request carries
+  an ID token (verified server-side against Google's certificates, no admin SDK), otherwise a
+  signed httpOnly device cookie minted on first sight. The counter lives in the Firestore
+  `aiQuota` collection through the REST API when `FIREBASE_ADMIN_*` is set, otherwise in
+  process memory. The limit and count are never sent to the browser. A failed upstream call
+  refunds the request. Signing in switches the visitor to the account's own counter.
 - **Interactive vs ambient.** Chat, team builder, SP optimizer, and benchmark parsing are
   interactive: own key, else free tier, else denied. Compare chips, team blurbs, team names,
   role inference, and benchmark re-parsing on evaluation are ambient: own key only, with a
@@ -187,8 +187,16 @@ shallowly: Firestore's per-request expression budget is exceeded by a field-by-f
 six Pokémon. Only the owner can write, so value-level checks of the owner's own data are left
 to the client. Keep `isValidMon` cheap.
 
-Guests use a localStorage adapter with the same async `TeamStore` interface. Chat history is
-kept in React state for the session and is not persisted.
+Guests use a localStorage adapter with the same async `TeamStore` interface. When a visitor
+signs in or creates an account, Workspace moves every browser-saved team into the account store
+(skipping ids already there, then deleting the local copy) and shows a one-line notice; there is
+no prompt. Chat history is kept in React state for the session and is not persisted.
+
+The header's ⚙ Options menu (`src/components/OptionsMenu.tsx`) holds the visitor-level
+settings: the Showdown account panel (username link, ratings, replays, public-team import,
+import from a Showdown link; imports reach Workspace through the `vgc:import-paste` window
+event), the AI access panel (opened through `vgc:open-ai-panel`), and sign in / sign out with
+a note on where teams are being saved.
 
 ---
 
@@ -231,7 +239,11 @@ Root client component: `src/components/Workspace.tsx`. Two modes.
   (never a password) to see Champions ratings, the five most recent replays in the active
   format, and public teams with an Import button each, or import from a `psim.us/t/…` or
   `teams.pokemonshowdown.com/view/…` link.
-- **Editor**: tab bar over three views plus the chat panel. Leaving with unsaved changes opens
+- **Editor**: tab bar over three views plus the chat panel. The assistant keeps one conversation
+  per team (keyed by saved-team id; an unsaved team uses a draft thread that moves under the id on
+  first save) in this browser's localStorage via `src/lib/chat/threads.ts`, capped at 60 messages
+  per thread and 40 threads; deleting a team deletes its thread, and "New chat" clears the open
+  one. Threads do not sync through Firestore. Leaving with unsaved changes opens
   a save prompt. Save, Export, and Import live in the toolbar's overflow menu; the team name
   is edited inline, and the first save suggests names when the name is a placeholder.
 

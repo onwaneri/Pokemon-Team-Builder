@@ -5,7 +5,8 @@
  * (never a count — the free limit is a server-side secret), and opens a panel
  * where the visitor pastes their own key (OpenAI, Gemini, Anthropic, OpenRouter). The key goes to
  * /api/ai-key, is validated with the provider, and comes back only as an httpOnly cookie — this
- * component never sees it again. Opens automatically when a request is refused for quota.
+ * component never sees it again. Opens automatically when a request is refused for quota, and on
+ * the 'vgc:open-ai-panel' window event (the header options menu).
  */
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { emitAiEvent, type AiDeniedEvent, type AiUsageEvent } from '@/lib/aiFetch';
@@ -69,13 +70,16 @@ export default function AiKeyControl() {
       refresh();
     };
     const onChanged = () => refresh();
+    const onOpen = () => { setNotice(null); setOpen(true); };
     window.addEventListener('vgc:ai-usage', onUsage);
     window.addEventListener('vgc:ai-denied', onDenied);
     window.addEventListener('vgc:ai-changed', onChanged);
+    window.addEventListener('vgc:open-ai-panel', onOpen);
     return () => {
       window.removeEventListener('vgc:ai-usage', onUsage);
       window.removeEventListener('vgc:ai-denied', onDenied);
       window.removeEventListener('vgc:ai-changed', onChanged);
+      window.removeEventListener('vgc:open-ai-panel', onOpen);
     };
   }, [refresh]);
 
@@ -87,10 +91,8 @@ export default function AiKeyControl() {
         ? 'AI: connect a key'
         : status.free.exhausted
           ? 'AI: add your key'
-          : status.free.signedIn
-            ? 'AI: built-in'
-            : 'AI: sign in or add a key';
-  const warn = !!status && !status.byok && (!status.free.configured || status.free.exhausted || !status.free.signedIn);
+          : 'AI: built-in';
+  const warn = !!status && !status.byok && (!status.free.configured || status.free.exhausted);
 
   return (
     <>
@@ -183,13 +185,11 @@ function AiKeyPanel({ status, notice, onClose, onChanged }: { status: AiStatus; 
           ) : !status.free.configured ? (
             <>The built-in AI is not configured on this server. Connect your own key to use AI features.</>
           ) : status.free.exhausted ? (
-            <>That&apos;s all the built-in AI I can cover for your account :) Add one of your own keys below to keep chatting, building, and optimizing.</>
-          ) : status.free.signedIn ? (
-            <>
-              You&apos;re on the site&apos;s built-in AI. <strong style={{ color: '#e4e4f8' }}>Please don&apos;t drain my account :)</strong>{' '}Chat, team builds, SP optimizations, and benchmark parsing all run on it; when it runs out you&apos;ll be asked to add one of your own keys. Connect a key below any time for unlimited use.
-            </>
+            <>That&apos;s all the built-in AI I can cover for you :) Add one of your own keys below to keep chatting, building, and optimizing.</>
           ) : (
-            <>Sign in (top right) to use the built-in AI for free, or connect your own key below.</>
+            <>
+              You&apos;re on the site&apos;s built-in AI, no sign-in needed. <strong style={{ color: '#e4e4f8' }}>Please don&apos;t drain my account :)</strong>{' '}Chat, team builds, SP optimizations, and benchmark parsing all run on it; when it runs out you&apos;ll be asked to add one of your own keys. Connect a key below any time, signed in or not, for unlimited use.
+            </>
           )}
         </div>
 

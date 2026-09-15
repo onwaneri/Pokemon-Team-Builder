@@ -184,7 +184,8 @@ export class AiDenied extends Error {
  * Resolve the client for an AI request. The visitor only ever chooses a provider; the model is
  * picked here from the job (chat and builds on the provider's smart tier, structured one-shot
  * jobs on its fast tier).
- *   interactive=true  → BYOK, else the free tier (signed-in users only, counted), else AiDenied.
+ *   interactive=true  → BYOK, else the free tier (counted per visitor: the Firebase account when
+ *                       signed in, otherwise the signed device cookie), else AiDenied.
  *   interactive=false → BYOK only; returns null so the caller uses its deterministic fallback.
  */
 export async function resolveAi(req: Request, opts: { job: AiJob; interactive: true; consume?: boolean }): Promise<AiGrant>;
@@ -206,10 +207,9 @@ export async function resolveAi(req: Request, opts: { job: AiJob; interactive: b
   if (!free) {
     throw new AiDenied('free_tier_unavailable', 'The free tier is not configured on this server. Connect your own API key to use AI features.');
   }
+  // No sign-in needed: an anonymous visitor's allowance follows the device cookie, a signed-in
+  // visitor's follows the account. Both stay hidden; the only visible edge is the denial.
   const identity = await resolveIdentity(req);
-  if (identity.kind !== 'account') {
-    throw new AiDenied('sign_in_required', 'Sign in (top right) to use the built-in AI, or connect your own API key.');
-  }
   const quota = quotaStore();
   // consume:false = a continuation of a request that was already charged (multi-step team build).
   if (opts.consume !== false) {
@@ -257,7 +257,7 @@ export async function aiStatus(req: Request): Promise<{
   const identity = await resolveIdentity(req);
   const free = freeTierCredential();
   const store = quotaStore();
-  const exhausted = identity.kind === 'account' ? (await store.used(identity.id)) >= FREE_CHAT_LIMIT : false;
+  const exhausted = free ? (await store.used(identity.id)) >= FREE_CHAT_LIMIT : false;
   return {
     byok: byok ? { provider: byok.provider, fingerprint: keyFingerprint(byok.apiKey) } : null,
     free: { configured: !!free, signedIn: identity.kind === 'account', exhausted },

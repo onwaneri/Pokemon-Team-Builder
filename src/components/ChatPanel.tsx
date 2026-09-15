@@ -22,6 +22,7 @@ const PLACEHOLDER: Record<WorkspaceView, string> = {
 
 export default function ChatPanel({
   team,
+  teamName,
   view,
   onAction,
   isOpen,
@@ -33,6 +34,8 @@ export default function ChatPanel({
   onSend,
 }: {
   team: TeamMon[] | null;
+  /** Shown under the title: every team has its own conversation. */
+  teamName: string;
   view: WorkspaceView;
   onAction: (action: ChatAction) => void;
   isOpen: boolean;
@@ -159,17 +162,34 @@ export default function ChatPanel({
     <div style={{ ...containerStyle, animation: 'slideInR 0.22s ease' }}>
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '13px 14px', borderBottom: '1px solid rgba(99,102,241,0.14)', flexShrink: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontSize: 14, fontWeight: 900, color: '#e4e4f8', letterSpacing: '-0.3px' }}>AI Assistant</span>
-          <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#34d399', display: 'block', flexShrink: 0 }} />
+        <div style={{ minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 14, fontWeight: 900, color: '#e4e4f8', letterSpacing: '-0.3px' }}>AI Assistant</span>
+            <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#34d399', display: 'block', flexShrink: 0 }} />
+          </div>
+          <div title="Each team keeps its own conversation" style={{ fontSize: 10, fontWeight: 700, color: '#50508a', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            {teamName}
+          </div>
         </div>
-        <button
-          onClick={onToggle}
-          title="Collapse"
-          style={{ background: 'rgba(99,102,241,0.09)', border: '1px solid rgba(99,102,241,0.2)', color: '#5050a0', cursor: 'pointer', padding: '3px 9px', borderRadius: 6, fontSize: 14, fontWeight: 700, lineHeight: 1 }}
-        >
-          ›
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
+          {messages.length > 0 && (
+            <button
+              onClick={() => { if (!loading) setMessages([]); }}
+              disabled={loading}
+              title="Start a new conversation for this team"
+              style={{ background: 'transparent', border: '1px solid rgba(99,102,241,0.2)', color: '#5050a0', cursor: loading ? 'not-allowed' : 'pointer', padding: '3px 8px', borderRadius: 6, fontSize: 10, fontWeight: 800, lineHeight: 1.4, opacity: loading ? 0.5 : 1 }}
+            >
+              New chat
+            </button>
+          )}
+          <button
+            onClick={onToggle}
+            title="Collapse"
+            style={{ background: 'rgba(99,102,241,0.09)', border: '1px solid rgba(99,102,241,0.2)', color: '#5050a0', cursor: 'pointer', padding: '3px 9px', borderRadius: 6, fontSize: 14, fontWeight: 700, lineHeight: 1 }}
+          >
+            ›
+          </button>
+        </div>
       </div>
 
       {/* Messages */}

@@ -33,11 +33,12 @@ providers) calls those engines as tools and explains the results.
 - **Team builder.** Describe a team ("rain with a Trick Room mode") or place a few Pokémon and
   let the model fill the rest, researching with usage, speed, and damage tools. Runs one model
   round per request so it survives serverless timeouts.
-- **Team library.** Saved teams with AI-written blurbs and suggested names. localStorage for
-  guests, Firestore for signed-in users.
-- **Showdown.** Paste import and export (EVs converted to SP), link a Showdown username to see
-  Champions ratings, recent replays, and public teams with one-click import, and share a team
-  as a PokePaste.
+- **Team library.** Saved teams with AI-written blurbs and suggested names. Saved in the browser
+  until you sign in; signing in (or creating an account) moves anything saved in the browser
+  into the account automatically, and from then on teams save to Firestore.
+- **Showdown.** Paste import and export (EVs converted to SP), link a Showdown username (in the
+  header's ⚙ Options menu) to see Champions ratings, recent replays, and public teams with
+  one-click import, and share a team as a PokePaste.
 - **Replay analysis.** Reads the actual battle logs behind a player's recent replays and counts
   what they bring out of their six, what they lead, their record, and how they do into Trick Room,
   Tailwind, sun, rain, and the rest. No model is involved: every number is counted out of a log.
@@ -52,9 +53,10 @@ site's free tier. Visitors choose a provider only; the server picks the model pe
 (`modelFor` in `src/lib/ai/llm.ts`). Connected keys are validated with the provider, sealed
 into an httpOnly cookie with AES-256-GCM, and never stored server-side.
 
-The free tier runs on the owner's key from the environment, requires a signed-in Firebase
-account, and is capped per account (`FREE_CHAT_LIMIT`, counted in the Firestore `aiQuota`
-collection when admin credentials are present). Only requests the visitor explicitly triggers
+The free tier runs on the owner's key from the environment with no sign-in required. It is
+capped per visitor (`FREE_CHAT_LIMIT`, counted in the Firestore `aiQuota` collection when admin
+credentials are present): the Firebase account when signed in, otherwise a signed device
+cookie. Connecting your own key works signed in or not. Only requests the visitor explicitly triggers
 (chat, team builder, SP optimizer, benchmark parsing) spend it. Ambient features (compare
 chips, blurbs, role inference) run only on a connected key and fall back to deterministic
 behaviour without one.
@@ -115,6 +117,7 @@ src/lib/data/           champions (dex accessors), usage (Pikalytics), learnsets
 src/lib/rulesets/       Regulation registry: reg-m-b, reg-m-c
 src/lib/benchmarks/     parse (NL to check), evaluate (engine verdict), types
 src/lib/library/        Team store interface, localStorage and Firestore adapters
+src/lib/chat/           Per-team assistant conversations (localStorage threads keyed by team id)
 src/lib/showdown/       import, export, psApi, replayAnalysis (battle-log mining)
 src/lib/firebase/       client (web SDK), server (ID token verify + Firestore REST, no admin SDK)
 context/                Design docs and mechanics ground truth (see below)

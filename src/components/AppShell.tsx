@@ -10,6 +10,7 @@ import Workspace from '@/components/Workspace';
 import { useRuleset } from '@/components/RulesetProvider';
 import AuthControl from '@/components/AuthPanel';
 import AiKeyControl from '@/components/AiKeyControl';
+import OptionsMenu from '@/components/OptionsMenu';
 import type { FormLists } from '@/lib/data/champions';
 import { RULESETS, RULESET_IDS, type RulesetId } from '@/lib/rulesets';
 
@@ -96,6 +97,7 @@ export default function AppShell({ listsByRuleset }: { listsByRuleset: Record<Ru
               <option key={id} value={id}>{RULESETS[id].label}</option>
             ))}
           </select>
+          <OptionsMenu />
         </div>
       </header>
 

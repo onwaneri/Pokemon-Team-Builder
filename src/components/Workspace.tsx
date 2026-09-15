@@ -27,9 +27,9 @@ import SpeedTierView, { DEFAULT_SPEED_STATE, mineEntry, oppEntry } from '@/compo
 import ChatPanel from '@/components/ChatPanel';
 import TeamBuilderPanel from '@/components/TeamBuilderPanel';
 import TeamLibrary from '@/components/TeamLibrary';
-import ShowdownPanel from '@/components/showdown/ShowdownPanel';
 import ShareButtons from '@/components/showdown/ShareButtons';
 import { useChampionsChat } from '@/hooks/useChampionsChat';
+import { DRAFT_THREAD, moveThread, deleteThread } from '@/lib/chat/threads';
 import { useRuleset } from '@/components/RulesetProvider';
 import { RULESETS } from '@/lib/rulesets';
 import type { FormLists } from '@/lib/data/champions';
@@ -124,7 +124,8 @@ export default function Workspace({ lists }: { lists: FormLists }) {
   const rules = RULESETS[ruleset];
   // Team persistence: localStorage as a guest, the user's Firestore library when signed in.
   const { store: teamStore, storeVersion, user } = useAuth();
-  const [localTeamsToMove, setLocalTeamsToMove] = useState(0);
+  /** How many browser-saved teams were just moved into the account (a dismissible notice). */
+  const [movedTeams, setMovedTeams] = useState(0);
   /** Last persistence failure (Firestore rules, network, quota) — shown in the toolbar until dismissed. */
   const [saveError, setSaveError] = useState<string | null>(null);
 
@@ -187,20 +188,44 @@ export default function Workspace({ lists }: { lists: FormLists }) {
     teamStore.list().then((teams) => {
       if (!cancelled) setSavedTeams([...teams].sort((a, b) => b.updatedAt - a.updatedAt));
     });
-    // Signed in with teams still in this browser's localStorage → offer to move them.
-    const localCount = user && teamStore !== localTeamStore ? localTeamStore.list().then((l) => l.length) : Promise.resolve(0);
-    localCount.then((n) => { if (!cancelled) setLocalTeamsToMove(n); });
+    // Signed in (or just created an account) with teams still in this browser → move them into the
+    // account automatically. Same id already there means it was moved before: just drop the copy.
+    if (user && teamStore !== localTeamStore) {
+      (async () => {
+        const local = await localTeamStore.list();
+        if (!local.length) return;
+        const existing = new Set((await teamStore.list()).map((t) => t.id));
+        let moved = 0;
+        for (const t of local) {
+          try {
+            if (!existing.has(t.id)) await teamStore.save(t);
+            await localTeamStore.remove(t.id);
+            moved++;
+          } catch (e) {
+            console.error('[migrate]', e);
+            if (!cancelled) setSaveError(`Could not move "${t.name}" from this browser to your account; it is still saved here.`);
+            break;
+          }
+        }
+        if (cancelled || !moved) return;
+        setMovedTeams(moved);
+        const teams = await teamStore.list();
+        if (!cancelled) setSavedTeams([...teams].sort((a, b) => b.updatedAt - a.updatedAt));
+      })();
+    }
     return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [storeVersion]);
 
-  async function moveLocalTeams() {
-    const local = await localTeamStore.list();
-    for (const t of local) await teamStore.save(t);
-    for (const t of local) await localTeamStore.remove(t.id);
-    setLocalTeamsToMove(0);
-    await refreshTeams();
-  }
+  // Imports handed over by the options menu's Showdown panel (it has no reference into here).
+  useEffect(() => {
+    const onPaste = (e: Event) => {
+      const text = (e as CustomEvent<{ text?: string }>).detail?.text;
+      if (text) doImport(text, 'new');
+    };
+    window.addEventListener('vgc:import-paste', onPaste);
+    return () => window.removeEventListener('vgc:import-paste', onPaste);
+  });
 
   // ─── Refresh helper ────────────────────────────────────────────────────────
   async function refreshTeams() {
@@ -295,6 +320,8 @@ export default function Workspace({ lists }: { lists: FormLists }) {
         updatedAt: now,
         regulation: ruleset,
       };
+      // The draft's conversation becomes this team's.
+      moveThread(DRAFT_THREAD, savedTeam.id);
       setCurrentTeamId(savedTeam.id);
     }
 
@@ -324,6 +351,7 @@ export default function Workspace({ lists }: { lists: FormLists }) {
   }
 
   function startNew() {
+    deleteThread(DRAFT_THREAD);
     setTeam(Array(6).fill(null));
     setCurrentTeamId(null);
     setCurrentTeamName('Untitled Team');
@@ -377,7 +405,8 @@ export default function Workspace({ lists }: { lists: FormLists }) {
         setBuilderBanner(null);
         setShowImport(false);
         if (target === 'new') {
-          // Fresh, unsaved team.
+          // Fresh, unsaved team (with a fresh conversation).
+          deleteThread(DRAFT_THREAD);
           setCurrentTeamId(null);
           setCurrentTeamName('Untitled Team');
           setSavedHash(null);
@@ -407,6 +436,7 @@ export default function Workspace({ lists }: { lists: FormLists }) {
 
   async function handleDelete(id: string) {
     await teamStore.remove(id);
+    deleteThread(id);
     if (currentTeamId === id) {
       setCurrentTeamId(null);
       setSavedHash(null);
@@ -672,13 +702,14 @@ export default function Workspace({ lists }: { lists: FormLists }) {
     }
   }
 
-  // ─── Shared chat ───────────────────────────────────────────────────────────
+  // ─── Chat: one conversation per team ──────────────────────────────────────
   const chatTeam = team ? team.filter((m): m is TeamMon => m !== null) : null;
   const chat = useChampionsChat({
     team: chatTeam,
     getContext: (): ScreenContext => ({ view, teamName: currentTeamName, calc: calcState, speed: speedState }),
     onAction: handleChatAction,
     regulation: ruleset,
+    threadKey: currentTeamId ?? DRAFT_THREAD,
   });
 
   // ─── Team vs. active ruleset ───────────────────────────────────────────────
@@ -759,16 +790,12 @@ export default function Workspace({ lists }: { lists: FormLists }) {
           onDelete={handleDelete}
           onRename={handleRename}
           aside={
-            <>
-              {localTeamsToMove > 0 && (
-                <div style={{ borderRadius: 10, border: '1px solid rgba(52,211,153,0.3)', background: 'rgba(16,185,129,0.07)', padding: '9px 12px', display: 'flex', alignItems: 'center', gap: 10, fontSize: 12, color: '#a7f3d0' }}>
-                  <span style={{ flex: 1 }}>{localTeamsToMove} team{localTeamsToMove > 1 ? 's' : ''} saved in this browser before you signed in. Move {localTeamsToMove > 1 ? 'them' : 'it'} to your account?</span>
-                  <button onClick={moveLocalTeams} style={{ padding: '4px 12px', borderRadius: 7, border: 'none', background: 'rgba(16,185,129,0.7)', color: 'white', fontSize: 11, fontWeight: 800, cursor: 'pointer' }}>Move to account</button>
-                  <button onClick={() => setLocalTeamsToMove(0)} style={{ background: 'none', border: 'none', color: '#50507a', cursor: 'pointer', fontSize: 14, lineHeight: 1 }}>×</button>
-                </div>
-              )}
-              <ShowdownPanel onImportPaste={(text) => doImport(text, 'new')} />
-            </>
+            movedTeams > 0 ? (
+              <div style={{ borderRadius: 10, border: '1px solid rgba(52,211,153,0.3)', background: 'rgba(16,185,129,0.07)', padding: '9px 12px', display: 'flex', alignItems: 'center', gap: 10, fontSize: 12, color: '#a7f3d0' }}>
+                <span style={{ flex: 1 }}>Moved {movedTeams} team{movedTeams > 1 ? 's' : ''} saved in this browser into your account.</span>
+                <button onClick={() => setMovedTeams(0)} style={{ background: 'none', border: 'none', color: '#50507a', cursor: 'pointer', fontSize: 14, lineHeight: 1 }}>×</button>
+              </div>
+            ) : null
           }
         />
         {exportModal}
@@ -949,6 +976,7 @@ export default function Workspace({ lists }: { lists: FormLists }) {
         {/* Right: chat panel */}
         <ChatPanel
           team={chatTeam}
+          teamName={currentTeamName}
           view={view}
           onAction={handleChatAction}
           isOpen={chatOpen}

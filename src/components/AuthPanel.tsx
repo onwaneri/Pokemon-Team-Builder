@@ -74,7 +74,7 @@ export default function AuthControl() {
   );
 }
 
-function SignInModal({ onClose }: { onClose: () => void }) {
+export function SignInModal({ onClose }: { onClose: () => void }) {
   const [tab, setTab] = useState<Tab>('email');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);

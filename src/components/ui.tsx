@@ -111,7 +111,7 @@ export function moveOptionNode(name: string, lists: FormLists, extras: OptionExt
       <span style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
         {info?.type ? <TypePill type={info.type} small /> : null}
         <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</span>
-        {extras.pct ? <span style={{ fontSize: 10, fontWeight: 700, color: extras.active ? 'white' : '#8b8bf0', flexShrink: 0 }}>{extras.pct}%</span> : null}
+        {extras.pct ? <span style={{ fontSize: 10, fontWeight: 700, color: extras.active ? 'white' : '#8b8bf0', flexShrink: 0 }}>{Math.round(extras.pct * 10) / 10}%</span> : null}
         {info?.category && (
           <span style={{ fontSize: 9, color: dim, flexShrink: 0 }}>
             {info.category}{info.bp ? ` · ${info.bp}` : ''}
@@ -132,7 +132,7 @@ export function itemOptionNode(name: string, lists: FormLists, extras: OptionExt
     <span style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
       <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
         <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</span>
-        {extras.pct ? <span style={{ fontSize: 10, fontWeight: 700, color: extras.active ? 'white' : '#8b8bf0', flexShrink: 0 }}>{extras.pct}%</span> : null}
+        {extras.pct ? <span style={{ fontSize: 10, fontWeight: 700, color: extras.active ? 'white' : '#8b8bf0', flexShrink: 0 }}>{Math.round(extras.pct * 10) / 10}%</span> : null}
       </span>
       {desc && (
         <span style={{ fontSize: 10, color: dim, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontWeight: 500 }}>{desc}</span>

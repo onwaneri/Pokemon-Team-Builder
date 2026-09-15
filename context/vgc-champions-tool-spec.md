@@ -196,8 +196,13 @@ below); it is not part of the team record and does not sync through Firestore.
 The header's ⚙ Options menu (`src/components/OptionsMenu.tsx`) holds the visitor-level
 settings: the Showdown account panel (username link, ratings, replays, public-team import,
 import from a Showdown link; imports reach Workspace through the `vgc:import-paste` window
-event), the AI access panel (opened through `vgc:open-ai-panel`), and sign in / sign out with
-a note on where teams are being saved.
+event), the AI access panel (opened through `vgc:open-ai-panel`), the Guide (opened through
+`vgc:open-guide`), and sign in / sign out with a note on where teams are being saved.
+
+The Guide (`src/components/GuideTour.tsx`, mounted in AppShell) is a ten-slide walkthrough of
+the capabilities. It opens by itself on a browser's first visit (localStorage flag
+`vgc-champions-guide-v1`, set on any close so it never repeats) and is cancellable at every
+step: ×, Skip, Escape, or the backdrop. Its copy is static and mirrors README's "What it does".
 
 ---
 

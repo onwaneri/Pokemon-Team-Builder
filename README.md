@@ -36,6 +36,8 @@ providers) calls those engines as tools and explains the results.
 - **Team library.** Saved teams with AI-written blurbs and suggested names. Saved in the browser
   until you sign in; signing in (or creating an account) moves anything saved in the browser
   into the account automatically, and from then on teams save to Firestore.
+- **Guide.** A click-through tour of the capabilities opens on the first visit to a browser and
+  is available any time from ⚙ Options → Guide. Cancellable at every step.
 - **Showdown.** Paste import and export (EVs converted to SP), link a Showdown username (in the
   header's ⚙ Options menu) to see Champions ratings, recent replays, and public teams with
   one-click import, and share a team as a PokePaste.

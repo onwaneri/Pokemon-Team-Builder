@@ -6,12 +6,14 @@
  *     and import from a Showdown link. Imports are handed to the workspace through the
  *     'vgc:import-paste' window event so this menu needs no reference into it.
  *   - AI access: opens the key panel (own key on any provider, or the built-in free tier).
+ *   - Guide: replays the first-visit walkthrough (GuideTour, via the 'vgc:open-guide' event).
  *   - Account: sign in / sign out, and where teams are being saved right now.
  */
 import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '@/components/AuthProvider';
 import { SignInModal } from '@/components/AuthPanel';
 import ShowdownPanel from '@/components/showdown/ShowdownPanel';
+import { OPEN_GUIDE_EVENT } from '@/components/GuideTour';
 
 type Modal = 'showdown' | 'signin' | null;
 
@@ -73,6 +75,10 @@ export default function OptionsMenu() {
           <button role="menuitem" style={itemStyle} onClick={() => pick(() => window.dispatchEvent(new CustomEvent('vgc:open-ai-panel')))}>
             AI access
             <span style={hintStyle}>Use the built-in AI, or connect your own OpenAI, Gemini, Anthropic, or OpenRouter key. Works signed in or not.</span>
+          </button>
+          <button role="menuitem" style={itemStyle} onClick={() => pick(() => window.dispatchEvent(new CustomEvent(OPEN_GUIDE_EVENT)))}>
+            Guide
+            <span style={hintStyle}>A quick tour of everything the app can do: library, editor, Megas, assistant, builder, calc, speed tiers, export.</span>
           </button>
           <div style={{ height: 1, background: 'rgba(99,102,241,0.15)', margin: '4px 6px' }} />
           {enabled && user ? (

@@ -11,6 +11,7 @@ import { useRuleset } from '@/components/RulesetProvider';
 import AuthControl from '@/components/AuthPanel';
 import AiKeyControl from '@/components/AiKeyControl';
 import OptionsMenu from '@/components/OptionsMenu';
+import GuideTour from '@/components/GuideTour';
 import type { FormLists } from '@/lib/data/champions';
 import { RULESETS, RULESET_IDS, type RulesetId } from '@/lib/rulesets';
 
@@ -98,6 +99,7 @@ export default function AppShell({ listsByRuleset }: { listsByRuleset: Record<Ru
             ))}
           </select>
           <OptionsMenu />
+          <GuideTour />
         </div>
       </header>
 

@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * The walkthrough: a click-through slideshow of annotated screenshots of the app.
+ * The walkthrough: a click-through slideshow of screenshots of the app, one paragraph each.
  *
  * Opens by itself the first time this browser visits (a localStorage flag, set the moment the
  * tour is closed by any route, so it never nags twice), and again whenever the header's
@@ -9,20 +9,21 @@
  * the close button, Skip, Escape, or clicking the backdrop. Keyboard: left and right arrows move
  * between slides.
  *
- * Each slide is a real screenshot in public/guide/<id>.jpg with numbered callout boxes drawn over
- * it and the matching numbered notes underneath. The boxes are measured from the live DOM by
- * scripts/guide-shots.mjs, which also writes guideShots.json; the copy here is hand-written and
- * keyed by slide id. Re-run the script whenever the UI changes.
+ * Each slide is a real screenshot: public/guide/<id>.jpg from the desktop layout, or
+ * public/guide/m/<id>.jpg from the phone layout below the phone breakpoint, where the dialog is a
+ * full-screen sheet. scripts/guide-shots.mjs captures both sets and writes guideShots.json with
+ * each image's size (so the frame reserves the right aspect ratio before the image loads); the
+ * copy here is hand-written and keyed by slide id. Re-run the script whenever the UI changes.
  */
 import { useEffect, useState } from 'react';
+import { useIsMobile } from '@/hooks/useIsMobile';
 import shots from './guideShots.json';
 
 const STORAGE_KEY = 'vgc-champions-guide-v1';
 export const OPEN_GUIDE_EVENT = 'vgc:open-guide';
 
-interface Box { label: string; x: number; y: number; w: number; h: number }
-interface Shot { width: number; height: number; boxes: Box[] }
-const SHOTS = shots as Record<string, Shot>;
+interface Shot { width: number; height: number }
+const SHOTS = shots as { desktop: Record<string, Shot>; phone: Record<string, Shot> };
 
 interface Slide {
   id: string;
@@ -34,57 +35,57 @@ const SLIDES: Slide[] = [
   {
     id: 'library',
     title: 'Team Library',
-    text: 'Every saved team lives here with an AI-written overview and a suggested name. Teams save in this browser until you sign in; signing in moves them into your account and keeps saving there.',
+    text: 'Every saved team lives here with an AI-written overview and a suggested name. New Team starts from scratch and Import Team takes a Showdown paste; each card opens, exports, duplicates or deletes its team. Teams save in this browser until you sign in; signing in moves them into your account and keeps saving there.',
   },
   {
     id: 'overview',
     title: 'The editor',
-    text: 'A team opens into three views that share one assistant panel. The regulation selector in the header switches the whole app between ranked seasons without touching the open team.',
+    text: 'A team opens into three views, Team, Damage Calc and Speed Tiers, that share one assistant. The six slots sit above the set editor. The regulation selector in the header switches the whole app between ranked seasons without touching the open team.',
   },
   {
     id: 'editor',
     title: 'Building a set',
-    text: 'Pickers are sorted by usage and filtered by what the Pokemon can actually learn in Champions. Stat Points replace EVs: 0 to 32 per stat, 66 in total. Anything illegal for the active regulation is flagged in the issues bar as you edit, never silently changed.',
+    text: 'Species, ability, item, nature and moves each have a picker sorted by usage and filtered by what the Pokemon can actually learn in Champions, and the popular Pikalytics sets apply with one click. Stat Points replace EVs: 0 to 32 per stat, 66 in total, on sliders whose plus and minus toggles set the nature. Anything illegal for the active regulation is flagged in the issues bar as you edit, never silently changed.',
   },
   {
     id: 'megas',
     title: 'Megas',
-    text: 'Bring as many Mega-capable Pokemon as you like; only one can Mega Evolve in a given battle, and bringing one without evolving it is normal. Give a Pokemon its Mega Stone and the slot becomes the Mega forme.',
+    text: 'Bring as many Mega-capable Pokemon as you like; only one can Mega Evolve in a given battle, and bringing one without evolving it is normal. Give a Pokemon its Mega Stone and the slot becomes the Mega forme. The toggle next to the name flips the view between the base forme and the Mega, so you can build and calc either one.',
   },
   {
     id: 'assistant',
     title: 'AI Assistant',
-    text: 'Ask a question or say what to change in plain language: "give Garchomp a Life Orb and max Speed", "set the defender to Incineroar", "turn on Trick Room and run all moves". Direct edits apply immediately; suggestions arrive as cards you accept or reject. Every number comes from the damage engine or live usage data, and each team keeps its own conversation.',
+    text: 'Ask a question, or say what to change in plain language: "give Garchomp a Life Orb and max Speed", "set the defender to Incineroar", "turn on Trick Room and run all moves". Direct edits apply immediately; suggestions arrive as cards you accept or reject. Every number comes from the damage engine or live usage data, and the reply names the tools it ran. Each team keeps its own conversation.',
   },
   {
     id: 'builder',
     title: 'AI Team Builder',
-    text: 'Describe a team, or place a few Pokemon and let it fill the rest. It plans an archetype, drafts sets from usage, then refines them against the top threats with real damage calcs, in short rounds.',
+    text: 'On the Team tab, describe the team you want, or place a few Pokemon and describe what is missing. The builder plans an archetype, drafts sets from usage, then refines them against the top threats with real damage calcs, in short rounds. Every slot stays editable.',
   },
   {
     id: 'builder-result',
     title: 'AI Team Builder: the result',
-    text: 'The finished slots land in the team with a summary of the plan. Nothing is locked: edit any set, or undo the whole build with one click.',
+    text: 'The finished slots land in the team with a summary of the plan, each one a full legal set. Nothing is locked: edit any set, or undo the whole build with one click.',
   },
   {
     id: 'calc',
     title: 'Damage Calc',
-    text: 'Attacker on the left, defender on the right, from your team or any Pokemon. Weather, terrain, format and crit live in the field bar below. Speed ties and Multiscale are flagged, never guessed.',
+    text: 'Attacker on one side, defender on the other, loaded from your team or any Pokemon. Click a move to calc it: the range appears on the move, with all sixteen rolls, the KO chance and a description below. The matchups strip picks the threats that matter for the Pokemon you are building around, and one click loads them. Weather, terrain, format and crit live in the field bar. Speed ties and Multiscale are flagged, never guessed.',
   },
   {
     id: 'speed',
     title: 'Speed Tiers',
-    text: 'Your team against the speeds that matter in the format. Toggle Tailwind or Trick Room, set stat stages, Choice Scarf, paralysis and priority, and see exactly who moves first.',
+    text: 'Your team against the speeds that matter in the format, with benchmarks chosen from the ranked usage for the Pokemon you have. Toggle Tailwind on either side or Trick Room, set stat stages, Choice Scarf, paralysis and priority, add any opponent, and see exactly who moves first.',
   },
   {
     id: 'export',
     title: 'Export and share',
-    text: 'Export any team as a Showdown paste, copy it, or share it as a PokePaste link. Import works the same way in reverse, from a paste or from a linked Showdown account.',
+    text: 'Export any team as a Showdown paste. Stat Points are written on the EVs line so Showdown reads them directly. Copy it, or share it as a PokePaste link. Import works the same way in reverse, from a paste or from a linked Showdown account.',
   },
   {
     id: 'options',
     title: 'Options',
-    text: 'The assistant works out of the box on a built-in allowance. To go further, connect your own OpenAI, Gemini, Anthropic or OpenRouter key: it is sealed in an encrypted cookie on this device and never stored on the server. This guide is here whenever you want it back.',
+    text: 'The Options menu in the header holds the visitor-level settings: link a Showdown account for ratings, replays and one-click team import; choose AI access; sign in to keep teams on your account; and reopen this guide. The assistant works out of the box on a built-in allowance. To go further, connect your own OpenAI, Gemini, Anthropic or OpenRouter key: it is sealed in an encrypted cookie on this device and never stored on the server.',
   },
 ];
 
@@ -96,11 +97,10 @@ function hasSeen(): boolean {
   try { return localStorage.getItem(STORAGE_KEY) === 'seen'; } catch { return false; }
 }
 
-const ACCENT = '#fbbf24';
-
 export default function GuideTour() {
   const [open, setOpen] = useState(false);
   const [index, setIndex] = useState(0);
+  const isMobile = useIsMobile();
 
   // First visit: open once the page has painted. Later: whenever the options menu asks.
   useEffect(() => {
@@ -131,17 +131,19 @@ export default function GuideTour() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, index]);
 
+  const src = (id: string) => (isMobile ? `/guide/m/${id}.jpg` : `/guide/${id}.jpg`);
+
   // Preload the next screenshot so paging never shows a blank frame.
   useEffect(() => {
     if (!open || last) return;
     const img = new Image();
-    img.src = `/guide/${SLIDES[index + 1].id}.jpg`;
-  }, [open, index, last]);
+    img.src = src(SLIDES[index + 1].id);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, index, last, isMobile]);
 
   if (!open) return null;
   const slide = SLIDES[index];
-  const shot = SHOTS[slide.id];
-  const boxes = shot?.boxes ?? [];
+  const shot = (isMobile ? SHOTS.phone : SHOTS.desktop)[slide.id];
 
   return (
     <div
@@ -149,9 +151,9 @@ export default function GuideTour() {
       aria-modal="true"
       aria-label="Guide"
       onClick={(e) => { if (e.target === e.currentTarget) close(); }}
-      style={{ position: 'fixed', inset: 0, zIndex: 2000, background: 'rgba(4,4,14,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, animation: 'fadeUp 0.18s ease' }}
+      style={{ position: 'fixed', inset: 0, zIndex: 2000, background: 'rgba(4,4,14,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: isMobile ? 0 : 20, animation: 'fadeUp 0.18s ease' }}
     >
-      <div style={{ width: 940, maxWidth: '100%', maxHeight: '100%', borderRadius: 16, border: '1px solid rgba(99,102,241,0.3)', background: 'rgba(11,11,28,0.98)', boxShadow: '0 20px 60px rgba(0,0,0,0.6)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <div style={{ width: isMobile ? '100%' : 940, maxWidth: '100%', height: isMobile ? '100%' : undefined, maxHeight: '100%', borderRadius: isMobile ? 0 : 16, border: isMobile ? 'none' : '1px solid rgba(99,102,241,0.3)', background: 'rgba(11,11,28,0.98)', boxShadow: '0 20px 60px rgba(0,0,0,0.6)', display: 'flex', flexDirection: 'column', overflow: 'hidden', paddingTop: isMobile ? 'env(safe-area-inset-top)' : 0, paddingBottom: isMobile ? 'env(safe-area-inset-bottom)' : 0 }}>
         {/* Top bar */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '11px 16px', borderBottom: '1px solid rgba(99,102,241,0.14)', flexShrink: 0 }}>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, minWidth: 0 }}>
@@ -172,34 +174,24 @@ export default function GuideTour() {
           </div>
         </div>
 
-        {/* Slide body: screenshot with callouts, notes underneath */}
-        <div key={slide.id} style={{ overflowY: 'auto', minHeight: 0, animation: 'fadeUp 0.16s ease' }}>
-          <div style={{ padding: '14px 16px 0' }}>
-            <div style={{ position: 'relative', width: '100%', aspectRatio: shot ? `${shot.width} / ${shot.height}` : '14 / 9', borderRadius: 10, overflow: 'hidden', border: '1px solid rgba(99,102,241,0.22)', background: '#07071a' }}>
+        {/* Slide body: the screenshot, then the description */}
+        <div key={slide.id} style={{ overflowY: 'auto', minHeight: 0, flex: isMobile ? 1 : undefined, animation: 'fadeUp 0.16s ease' }}>
+          {isMobile ? (
+            // Phone: the tall screenshot sizes itself to the height budget and keeps its own width,
+            // so there are no letterbox bars beside it.
+            <div style={{ padding: '12px 12px 0', display: 'flex', justifyContent: 'center' }}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={`/guide/${slide.id}.jpg`} alt={slide.title} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', display: 'block' }} />
-              {boxes.map((b, i) => (
-                <div key={i} aria-hidden style={{ position: 'absolute', left: `${b.x * 100}%`, top: `${b.y * 100}%`, width: `${b.w * 100}%`, height: `${b.h * 100}%`, boxSizing: 'border-box', border: `2px solid ${ACCENT}`, borderRadius: 6, boxShadow: '0 0 0 1px rgba(0,0,0,0.55)', pointerEvents: 'none' }}>
-                  <span style={{ position: 'absolute', left: -1, top: -1, transform: 'translate(-40%, -40%)', minWidth: 20, height: 20, padding: '0 6px', borderRadius: 10, background: ACCENT, color: '#1a1200', fontSize: 11, fontWeight: 900, lineHeight: '20px', textAlign: 'center', boxShadow: '0 1px 4px rgba(0,0,0,0.5)' }}>
-                    {i + 1}
-                  </span>
-                </div>
-              ))}
+              <img src={src(slide.id)} alt={slide.title} style={{ display: 'block', maxHeight: '56vh', maxWidth: '100%', width: 'auto', height: 'auto', borderRadius: 10, border: '1px solid rgba(99,102,241,0.22)', background: '#07071a' }} />
             </div>
-          </div>
-          <div style={{ padding: '12px 16px 6px', display: 'grid', gridTemplateColumns: boxes.length ? 'minmax(0, 1.1fr) minmax(0, 1fr)' : '1fr', gap: 16 }}>
-            {boxes.length > 0 && (
-              <ol style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {boxes.map((b, i) => (
-                  <li key={i} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 12, lineHeight: 1.5, color: '#c8c8e8' }}>
-                    <span style={{ flexShrink: 0, minWidth: 20, height: 20, padding: '0 6px', borderRadius: 10, background: ACCENT, color: '#1a1200', fontSize: 11, fontWeight: 900, lineHeight: '20px', textAlign: 'center' }}>{i + 1}</span>
-                    <span>{b.label}</span>
-                  </li>
-                ))}
-              </ol>
-            )}
-            <p style={{ margin: 0, fontSize: 12.5, lineHeight: 1.6, color: '#a8a8cc' }}>{slide.text}</p>
-          </div>
+          ) : (
+            <div style={{ padding: '14px 16px 0' }}>
+              <div style={{ position: 'relative', width: '100%', aspectRatio: shot ? `${shot.width} / ${shot.height}` : '14 / 9', borderRadius: 10, overflow: 'hidden', border: '1px solid rgba(99,102,241,0.22)', background: '#07071a' }}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={src(slide.id)} alt={slide.title} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', display: 'block' }} />
+              </div>
+            </div>
+          )}
+          <p style={{ margin: 0, padding: isMobile ? '12px 14px 8px' : '14px 18px 8px', fontSize: isMobile ? 13.5 : 13, lineHeight: 1.65, color: '#b8b8dc' }}>{slide.text}</p>
         </div>
 
         {/* Footer */}

@@ -199,15 +199,17 @@ import from a Showdown link; imports reach Workspace through the `vgc:import-pas
 event), the AI access panel (opened through `vgc:open-ai-panel`), the Guide (opened through
 `vgc:open-guide`), and sign in / sign out with a note on where teams are being saved.
 
-The Guide (`src/components/GuideTour.tsx`, mounted in AppShell) is a ten-slide walkthrough:
-each slide is a real screenshot (`public/guide/<id>.jpg`) with numbered callout boxes drawn over
-it and the numbered notes plus a paragraph underneath. `scripts/guide-shots.mjs` drives a
-Playwright Chromium against the dev server (seeded teams in its own storage, one real assistant
-reply, one real calc, one builder run), writes the JPEGs, and measures the callout boxes into
-`src/components/guideShots.json` as fractions of each image; the copy in the component is
-hand-written and keyed by slide id. It opens by itself on a browser's first visit (localStorage
-flag `vgc-champions-guide-v1`, set on any close so it never repeats) and is cancellable at every
-step: close, Skip, Escape, or the backdrop. No emoji or icon glyphs anywhere in it.
+The Guide (`src/components/GuideTour.tsx`, mounted in AppShell) is an eleven-slide walkthrough:
+each slide is a real screenshot with one descriptive paragraph under it, nothing drawn over the
+image. Desktop shows `public/guide/<id>.jpg` (1400×900 layout) in a dialog; below the phone
+breakpoint (`useIsMobile`) it shows `public/guide/m/<id>.jpg` (390×844 phone layout at 2×) as a
+full-screen sheet. `scripts/guide-shots.mjs` drives a Playwright Chromium against the dev server
+once per profile (seeded teams in its own storage, one real assistant reply, one real calc, one
+builder run each) and writes the JPEGs plus `src/components/guideShots.json` with each image's
+size; the copy in the component is hand-written and keyed by slide id. It opens by itself on a
+browser's first visit (localStorage flag `vgc-champions-guide-v1`, set on any close so it never
+repeats) and is cancellable at every step: close, Skip, Escape, or the backdrop. No emoji or icon
+glyphs anywhere in it.
 
 ---
 

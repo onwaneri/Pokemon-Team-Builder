@@ -1,306 +1,94 @@
 {
-  "library": {
-    "width": 1400,
-    "height": 370,
-    "boxes": [
-      {
-        "label": "Start from scratch, or paste a Showdown team",
-        "x": 0.8422879464285714,
-        "y": 0.1837837837837838,
-        "w": 0.07216517857142857,
-        "h": 0.08648648648648649
-      },
-      {
-        "label": "A saved team: overview, open, export, duplicate, delete",
-        "x": 0.014285714285714285,
-        "y": 0.31351351351351353,
-        "w": 0.23642857142857143,
-        "h": 0.6148648648648649
-      },
-      {
-        "label": "Options: Showdown account, AI access, sign in, this guide",
-        "x": 0.9301785714285714,
-        "y": 0.02837837837837838,
-        "w": 0.055535714285714285,
-        "h": 0.08108108108108109
-      }
-    ]
+  "desktop": {
+    "library": {
+      "width": 1400,
+      "height": 370
+    },
+    "overview": {
+      "width": 1400,
+      "height": 900
+    },
+    "editor": {
+      "width": 1400,
+      "height": 900
+    },
+    "megas": {
+      "width": 1400,
+      "height": 900
+    },
+    "assistant": {
+      "width": 1400,
+      "height": 900
+    },
+    "calc": {
+      "width": 1400,
+      "height": 900
+    },
+    "speed": {
+      "width": 1400,
+      "height": 560
+    },
+    "export": {
+      "width": 1400,
+      "height": 900
+    },
+    "builder": {
+      "width": 1400,
+      "height": 900
+    },
+    "builder-result": {
+      "width": 1400,
+      "height": 900
+    },
+    "options": {
+      "width": 760,
+      "height": 380
+    }
   },
-  "overview": {
-    "width": 1400,
-    "height": 900,
-    "boxes": [
-      {
-        "label": "Regulation: the whole app follows it",
-        "x": 0.8294642857142858,
-        "y": 0.011666666666666667,
-        "w": 0.09357142857142857,
-        "h": 0.03333333333333333
-      },
-      {
-        "label": "Team, Damage Calc, Speed Tiers",
-        "x": 0.5123660714285714,
-        "y": 0.07333333333333333,
-        "w": 0.046529017857142856,
-        "h": 0.03722222222222222
-      },
-      {
-        "label": "The six slots",
-        "x": 0.011428571428571429,
-        "y": 0.12277777777777778,
-        "w": 0.7485714285714286,
-        "h": 0.15222222222222223
-      },
-      {
-        "label": "The assistant, one conversation per team",
-        "x": 0.7714285714285715,
-        "y": 0.057777777777777775,
-        "w": 0.22857142857142856,
-        "h": 0.9422222222222222
-      }
-    ]
-  },
-  "editor": {
-    "width": 1400,
-    "height": 900,
-    "boxes": [
-      {
-        "label": "Species, ability, item, nature",
-        "x": 0.023571428571428573,
-        "y": 0.5022222222222222,
-        "w": 0.7242857142857143,
-        "h": 0.03777777777777778
-      },
-      {
-        "label": "Popular sets from Pikalytics apply with one click",
-        "x": 0.023571428571428573,
-        "y": 0.4127777777777778,
-        "w": 0.7242857142857143,
-        "h": 0.015
-      },
-      {
-        "label": "Moves: sorted by usage, filtered by learnset",
-        "x": 0.05084821428571429,
-        "y": 0.7488888888888889,
-        "w": 0.3266517857142857,
-        "h": 0.03777777777777778
-      },
-      {
-        "label": "Stat Points: 0 to 32 per stat, 66 total, with nature toggles",
-        "x": 0.023571428571428573,
-        "y": 0.9019444444444444,
-        "w": 0.04978794642857143,
-        "h": 0.015
-      }
-    ]
-  },
-  "megas": {
-    "width": 1400,
-    "height": 900,
-    "boxes": [
-      {
-        "label": "Two Megas on one team is fine; one evolves per battle",
-        "x": 0.011428571428571429,
-        "y": 0.12277777777777778,
-        "w": 0.7485714285714286,
-        "h": 0.15222222222222223
-      },
-      {
-        "label": "Flip the view between base forme and Mega",
-        "x": 0.2510379464285714,
-        "y": 0.3169444444444444,
-        "w": 0.09071428571428572,
-        "h": 0.029444444444444443
-      },
-      {
-        "label": "The Mega Stone makes the slot the Mega forme",
-        "x": 0.3896428571428571,
-        "y": 0.5727777777777778,
-        "w": 0.3582142857142857,
-        "h": 0.03777777777777778
-      }
-    ]
-  },
-  "assistant": {
-    "width": 1400,
-    "height": 900,
-    "boxes": [
-      {
-        "label": "Ask, or tell it what to change on this screen",
-        "x": 0.7807142857142857,
-        "y": 0.9488888888888889,
-        "w": 0.1644642857142857,
-        "h": 0.04
-      },
-      {
-        "label": "Answers come from the engine and usage data; it names the tools it ran",
-        "x": 0.7714285714285715,
-        "y": 0.057777777777777775,
-        "w": 0.22857142857142856,
-        "h": 0.9422222222222222
-      }
-    ]
-  },
-  "calc": {
-    "width": 1400,
-    "height": 900,
-    "boxes": [
-      {
-        "label": "Attacker",
-        "x": 0.13785714285714284,
-        "y": 0.13944444444444445,
-        "w": 0.2914285714285714,
-        "h": 0.016666666666666666
-      },
-      {
-        "label": "Defender",
-        "x": 0.45785714285714285,
-        "y": 0.13944444444444445,
-        "w": 0.2914285714285714,
-        "h": 0.016666666666666666
-      },
-      {
-        "label": "Click a move: rolls, KO chance, and the range appear",
-        "x": 0.16513392857142858,
-        "y": 0.4772222222222222,
-        "w": 0.199140625,
-        "h": 0.03777777777777778
-      },
-      {
-        "label": "Matchups picked for the Pokémon you are building around",
-        "x": 0.13642857142857143,
-        "y": 1.1008333333333333,
-        "w": 0.15106026785714285,
-        "h": 0.015
-      }
-    ]
-  },
-  "speed": {
-    "width": 1400,
-    "height": 560,
-    "boxes": [
-      {
-        "label": "Tailwind, Trick Room, priority",
-        "x": 0.12571428571428572,
-        "y": 0.20089285714285715,
-        "w": 0.08004464285714286,
-        "h": 0.05357142857142857
-      },
-      {
-        "label": "Benchmarks chosen from the format for your team",
-        "x": 0.135,
-        "y": 0.30223214285714284,
-        "w": 0.45010044642857144,
-        "h": 0.024107142857142858
-      },
-      {
-        "label": "Add any opponent",
-        "x": 0.5988392857142857,
-        "y": 0.19732142857142856,
-        "w": 0.12142857142857143,
-        "h": 0.060714285714285714
-      }
-    ]
-  },
-  "export": {
-    "width": 1400,
-    "height": 900,
-    "boxes": [
-      {
-        "label": "A Showdown paste; Stat Points go on the EVs line so Showdown reads them",
-        "x": 0.3678571428571429,
-        "y": 0.31583333333333335,
-        "w": 0.2642857142857143,
-        "h": 0.2644444444444444
-      },
-      {
-        "label": "Copy it, or share it as a PokePaste",
-        "x": 0.3678571428571429,
-        "y": 0.6441666666666667,
-        "w": 0.10245535714285714,
-        "h": 0.03111111111111111
-      }
-    ]
-  },
-  "builder": {
-    "width": 1400,
-    "height": 900,
-    "boxes": [
-      {
-        "label": "Describe the team, or what is missing",
-        "x": 0.02214285714285714,
-        "y": 0.13722222222222222,
-        "w": 0.6376897321428572,
-        "h": 0.04
-      },
-      {
-        "label": "Fills the open slots; every slot stays editable",
-        "x": 0.665546875,
-        "y": 0.13944444444444445,
-        "w": 0.08373883928571428,
-        "h": 0.035555555555555556
-      },
-      {
-        "label": "Two Pokemon placed, four to go",
-        "x": 0.011428571428571429,
-        "y": 0.2311111111111111,
-        "w": 0.7485714285714286,
-        "h": 0.15222222222222223
-      }
-    ]
-  },
-  "builder-result": {
-    "width": 1400,
-    "height": 900,
-    "boxes": [
-      {
-        "label": "What it built, and why, with Undo",
-        "x": 0.011428571428571429,
-        "y": 0.12277777777777778,
-        "w": 0.7485714285714286,
-        "h": 1.2277777777777779
-      },
-      {
-        "label": "The four new slots, each a full legal set",
-        "x": 0.011428571428571429,
-        "y": 0.23277777777777778,
-        "w": 0.7485714285714286,
-        "h": 0.15222222222222223
-      }
-    ]
-  },
-  "options": {
-    "width": 760,
-    "height": 380,
-    "boxes": [
-      {
-        "label": "Link a Showdown account",
-        "x": 0.5881578947368421,
-        "y": 0.14078947368421052,
-        "w": 0.3763157894736842,
-        "h": 0.16842105263157894
-      },
-      {
-        "label": "Built-in AI, or your own key",
-        "x": 0.5881578947368421,
-        "y": 0.3144736842105263,
-        "w": 0.3763157894736842,
-        "h": 0.16842105263157894
-      },
-      {
-        "label": "This guide, any time",
-        "x": 0.5881578947368421,
-        "y": 0.4881578947368421,
-        "w": 0.3763157894736842,
-        "h": 0.20526315789473684
-      },
-      {
-        "label": "Sign in to keep teams on your account",
-        "x": 0.5881578947368421,
-        "y": 0.7276315789473684,
-        "w": 0.3763157894736842,
-        "h": 0.20526315789473684
-      }
-    ]
+  "phone": {
+    "library": {
+      "width": 390,
+      "height": 844
+    },
+    "overview": {
+      "width": 390,
+      "height": 844
+    },
+    "editor": {
+      "width": 390,
+      "height": 844
+    },
+    "megas": {
+      "width": 390,
+      "height": 844
+    },
+    "assistant": {
+      "width": 390,
+      "height": 844
+    },
+    "calc": {
+      "width": 390,
+      "height": 844
+    },
+    "speed": {
+      "width": 390,
+      "height": 844
+    },
+    "export": {
+      "width": 390,
+      "height": 844
+    },
+    "builder": {
+      "width": 390,
+      "height": 844
+    },
+    "builder-result": {
+      "width": 390,
+      "height": 844
+    },
+    "options": {
+      "width": 390,
+      "height": 844
+    }
   }
 }

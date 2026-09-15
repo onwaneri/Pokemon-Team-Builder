@@ -36,10 +36,11 @@ providers) calls those engines as tools and explains the results.
 - **Team library.** Saved teams with AI-written blurbs and suggested names. Saved in the browser
   until you sign in; signing in (or creating an account) moves anything saved in the browser
   into the account automatically, and from then on teams save to Firestore.
-- **Guide.** A click-through tour of annotated screenshots opens on the first visit to a browser
-  and is available any time from ⚙ Options → Guide. Cancellable at every step. The screenshots
-  and their callout boxes are captured from a running dev server by `scripts/guide-shots.mjs`
-  (see the header of that file); re-run it after UI changes.
+- **Guide.** A click-through tour of screenshots, one paragraph each, opens on the first visit to
+  a browser and is available any time from ⚙ Options → Guide. Cancellable at every step. Phones
+  get screenshots of the phone layout in a full-screen sheet. Both sets are captured from a
+  running dev server by `scripts/guide-shots.mjs` (see the header of that file); re-run it after
+  UI changes.
 - **Showdown.** Paste import and export (EVs converted to SP), link a Showdown username (in the
   header's ⚙ Options menu) to see Champions ratings, recent replays, and public teams with
   one-click import, and share a team as a PokePaste.

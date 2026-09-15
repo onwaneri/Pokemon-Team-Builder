@@ -199,10 +199,15 @@ import from a Showdown link; imports reach Workspace through the `vgc:import-pas
 event), the AI access panel (opened through `vgc:open-ai-panel`), the Guide (opened through
 `vgc:open-guide`), and sign in / sign out with a note on where teams are being saved.
 
-The Guide (`src/components/GuideTour.tsx`, mounted in AppShell) is a ten-slide walkthrough of
-the capabilities. It opens by itself on a browser's first visit (localStorage flag
-`vgc-champions-guide-v1`, set on any close so it never repeats) and is cancellable at every
-step: ×, Skip, Escape, or the backdrop. Its copy is static and mirrors README's "What it does".
+The Guide (`src/components/GuideTour.tsx`, mounted in AppShell) is a ten-slide walkthrough:
+each slide is a real screenshot (`public/guide/<id>.jpg`) with numbered callout boxes drawn over
+it and the numbered notes plus a paragraph underneath. `scripts/guide-shots.mjs` drives a
+Playwright Chromium against the dev server (seeded teams in its own storage, one real assistant
+reply, one real calc, one builder run), writes the JPEGs, and measures the callout boxes into
+`src/components/guideShots.json` as fractions of each image; the copy in the component is
+hand-written and keyed by slide id. It opens by itself on a browser's first visit (localStorage
+flag `vgc-champions-guide-v1`, set on any close so it never repeats) and is cancellable at every
+step: close, Skip, Escape, or the backdrop. No emoji or icon glyphs anywhere in it.
 
 ---
 

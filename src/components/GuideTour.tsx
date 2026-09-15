@@ -1,84 +1,90 @@
 'use client';
 
 /**
- * The walkthrough: a click-through slideshow of what the app can do.
+ * The walkthrough: a click-through slideshow of annotated screenshots of the app.
  *
  * Opens by itself the first time this browser visits (a localStorage flag, set the moment the
  * tour is closed by any route, so it never nags twice), and again whenever the header's
- * ⚙ Options menu dispatches the 'vgc:open-guide' window event. Cancellable at every step:
- * the × button, Skip, Escape, or clicking the backdrop. Keyboard: ← → move between slides.
- * Pure UI; the slides are static copy kept in sync with README.md's "What it does".
+ * Options menu dispatches the 'vgc:open-guide' window event. Cancellable at every step:
+ * the close button, Skip, Escape, or clicking the backdrop. Keyboard: left and right arrows move
+ * between slides.
+ *
+ * Each slide is a real screenshot in public/guide/<id>.jpg with numbered callout boxes drawn over
+ * it and the matching numbered notes underneath. The boxes are measured from the live DOM by
+ * scripts/guide-shots.mjs, which also writes guideShots.json; the copy here is hand-written and
+ * keyed by slide id. Re-run the script whenever the UI changes.
  */
 import { useEffect, useState } from 'react';
+import shots from './guideShots.json';
 
 const STORAGE_KEY = 'vgc-champions-guide-v1';
 export const OPEN_GUIDE_EVENT = 'vgc:open-guide';
 
+interface Box { label: string; x: number; y: number; w: number; h: number }
+interface Shot { width: number; height: number; boxes: Box[] }
+const SHOTS = shots as Record<string, Shot>;
+
 interface Slide {
-  icon: string;
+  id: string;
   title: string;
-  body: string;
-  tip?: string;
+  text: string;
 }
 
 const SLIDES: Slide[] = [
   {
-    icon: '⚒',
-    title: 'Welcome to Forge',
-    body: 'A team builder for Pokémon Champions VGC. Build a team, check every set for legality, run the damage and speed math, and get help from an assistant whose numbers come from the real engine and live usage data.',
-    tip: 'The regulation selector in the header switches the whole app between ranked seasons (Reg M-B, Reg M-C). The open team is never touched by a switch.',
-  },
-  {
-    icon: '📚',
+    id: 'library',
     title: 'Team Library',
-    body: 'Every saved team lives here with an AI-written overview and a suggested name. Start from scratch, paste a Showdown team, or pull one of your public Showdown teams in with one click after linking your username in ⚙ Options.',
-    tip: 'Teams save in this browser until you sign in. Signing in moves them into your account automatically and keeps saving there.',
+    text: 'Every saved team lives here with an AI-written overview and a suggested name. Teams save in this browser until you sign in; signing in moves them into your account and keeps saving there.',
   },
   {
-    icon: '🧩',
-    title: 'Team editor',
-    body: 'Six slots. Pickers for species, ability, item, and moves are sorted by usage and filtered by learnset, and the popular Pikalytics sets apply with one click. Stat Points replace EVs: 0–32 per stat, 66 total, on sliders with + / − toggles that set the nature.',
-    tip: 'Anything illegal for the active regulation is flagged in the issues bar as you edit, never silently fixed.',
+    id: 'overview',
+    title: 'The editor',
+    text: 'A team opens into three views that share one assistant panel. The regulation selector in the header switches the whole app between ranked seasons without touching the open team.',
   },
   {
-    icon: '💎',
+    id: 'editor',
+    title: 'Building a set',
+    text: 'Pickers are sorted by usage and filtered by what the Pokemon can actually learn in Champions. Stat Points replace EVs: 0 to 32 per stat, 66 in total. Anything illegal for the active regulation is flagged in the issues bar as you edit, never silently changed.',
+  },
+  {
+    id: 'megas',
     title: 'Megas',
-    body: 'Bring as many Mega-capable Pokémon as you like. Only one can Mega Evolve in a given battle, and bringing one without evolving it is normal. Give a Pokémon its Mega Stone and the slot becomes the Mega forme.',
-    tip: 'The ⇄ toggle next to the name flips the view between the base forme and the Mega so you can calc either one.',
+    text: 'Bring as many Mega-capable Pokemon as you like; only one can Mega Evolve in a given battle, and bringing one without evolving it is normal. Give a Pokemon its Mega Stone and the slot becomes the Mega forme.',
   },
   {
-    icon: '✦',
+    id: 'assistant',
     title: 'AI Assistant',
-    body: 'The panel on the right sees the screen you are on. Ask a question, or say what to change in plain language: "give Garchomp a Life Orb and max Speed", "set the defender to Incineroar", "turn on Trick Room and run all moves". Direct edits apply immediately; suggestions arrive as cards you accept or reject.',
-    tip: 'Each team keeps its own conversation. "New chat" in the panel header starts it over.',
+    text: 'Ask a question or say what to change in plain language: "give Garchomp a Life Orb and max Speed", "set the defender to Incineroar", "turn on Trick Room and run all moves". Direct edits apply immediately; suggestions arrive as cards you accept or reject. Every number comes from the damage engine or live usage data, and each team keeps its own conversation.',
   },
   {
-    icon: '🏗',
+    id: 'builder',
     title: 'AI Team Builder',
-    body: 'On the Team tab, describe what you want ("sun team, I like Incineroar") or place a few Pokémon and let it fill the rest. It plans an archetype, drafts sets from usage, then refines them against the top threats with real damage calcs.',
-    tip: 'The result replaces the open slots with an Undo banner, so nothing is lost.',
+    text: 'Describe a team, or place a few Pokemon and let it fill the rest. It plans an archetype, drafts sets from usage, then refines them against the top threats with real damage calcs, in short rounds.',
   },
   {
-    icon: '⚔',
+    id: 'builder-result',
+    title: 'AI Team Builder: the result',
+    text: 'The finished slots land in the team with a summary of the plan. Nothing is locked: edit any set, or undo the whole build with one click.',
+  },
+  {
+    id: 'calc',
     title: 'Damage Calc',
-    body: 'Attacker on the left, defender on the right, pulled from your team or any Pokémon. Click a move to calc it: all 16 rolls, KO chance, and a Smogon-style line. The matchups strip below picks the threats that matter for the Pokémon you are building around; click one to load it.',
-    tip: 'Weather, terrain, format, and crit live in the field bar. Speed ties and Multiscale are flagged, never guessed.',
+    text: 'Attacker on the left, defender on the right, from your team or any Pokemon. Weather, terrain, format and crit live in the field bar below. Speed ties and Multiscale are flagged, never guessed.',
   },
   {
-    icon: '⚡',
+    id: 'speed',
     title: 'Speed Tiers',
-    body: 'Your team against the speeds that matter in the format, with Tailwind and Trick Room toggles, stat stages, Choice Scarf, paralysis, and priority. See exactly who moves first, and by how much.',
+    text: 'Your team against the speeds that matter in the format. Toggle Tailwind or Trick Room, set stat stages, Choice Scarf, paralysis and priority, and see exactly who moves first.',
   },
   {
-    icon: '📤',
+    id: 'export',
     title: 'Export and share',
-    body: 'Export any team as a Showdown paste (Stat Points written as EVs so Showdown reads them), copy it, or share it as a PokePaste link. Import works the same way in reverse.',
+    text: 'Export any team as a Showdown paste, copy it, or share it as a PokePaste link. Import works the same way in reverse, from a paste or from a linked Showdown account.',
   },
   {
-    icon: '🔑',
-    title: 'AI access and your account',
-    body: 'The assistant works out of the box on a built-in allowance. To go further, connect your own OpenAI, Gemini, Anthropic, or OpenRouter key: it is sealed in an encrypted cookie on this device and never stored on the server. Sign in to keep your teams on your account across devices.',
-    tip: 'Reopen this guide any time from ⚙ Options → Guide.',
+    id: 'options',
+    title: 'Options',
+    text: 'The assistant works out of the box on a built-in allowance. To go further, connect your own OpenAI, Gemini, Anthropic or OpenRouter key: it is sealed in an encrypted cookie on this device and never stored on the server. This guide is here whenever you want it back.',
   },
 ];
 
@@ -89,6 +95,8 @@ function markSeen() {
 function hasSeen(): boolean {
   try { return localStorage.getItem(STORAGE_KEY) === 'seen'; } catch { return false; }
 }
+
+const ACCENT = '#fbbf24';
 
 export default function GuideTour() {
   const [open, setOpen] = useState(false);
@@ -123,8 +131,17 @@ export default function GuideTour() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, index]);
 
+  // Preload the next screenshot so paging never shows a blank frame.
+  useEffect(() => {
+    if (!open || last) return;
+    const img = new Image();
+    img.src = `/guide/${SLIDES[index + 1].id}.jpg`;
+  }, [open, index, last]);
+
   if (!open) return null;
   const slide = SLIDES[index];
+  const shot = SHOTS[slide.id];
+  const boxes = shot?.boxes ?? [];
 
   return (
     <div
@@ -132,15 +149,18 @@ export default function GuideTour() {
       aria-modal="true"
       aria-label="Guide"
       onClick={(e) => { if (e.target === e.currentTarget) close(); }}
-      style={{ position: 'fixed', inset: 0, zIndex: 2000, background: 'rgba(4,4,14,0.78)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, animation: 'fadeUp 0.18s ease' }}
+      style={{ position: 'fixed', inset: 0, zIndex: 2000, background: 'rgba(4,4,14,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, animation: 'fadeUp 0.18s ease' }}
     >
-      <div style={{ width: 560, maxWidth: '100%', borderRadius: 16, border: '1px solid rgba(99,102,241,0.3)', background: 'rgba(11,11,28,0.98)', boxShadow: '0 20px 60px rgba(0,0,0,0.6)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <div style={{ width: 940, maxWidth: '100%', maxHeight: '100%', borderRadius: 16, border: '1px solid rgba(99,102,241,0.3)', background: 'rgba(11,11,28,0.98)', boxShadow: '0 20px 60px rgba(0,0,0,0.6)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         {/* Top bar */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', borderBottom: '1px solid rgba(99,102,241,0.14)' }}>
-          <span style={{ fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '1px', color: '#50508a' }}>
-            Guide · {index + 1} / {SLIDES.length}
-          </span>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '11px 16px', borderBottom: '1px solid rgba(99,102,241,0.14)', flexShrink: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, minWidth: 0 }}>
+            <span style={{ fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '1px', color: '#50508a', whiteSpace: 'nowrap' }}>
+              Guide {index + 1} of {SLIDES.length}
+            </span>
+            <h2 style={{ margin: 0, fontSize: 16, fontWeight: 900, color: '#eaeaf8', letterSpacing: '-0.2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{slide.title}</h2>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
             {!last && (
               <button onClick={close} style={{ background: 'none', border: 'none', color: '#6a6a9a', cursor: 'pointer', fontSize: 11, fontWeight: 800, padding: '3px 6px' }}>
                 Skip
@@ -152,28 +172,44 @@ export default function GuideTour() {
           </div>
         </div>
 
-        {/* Slide */}
-        <div key={index} style={{ padding: '26px 28px 18px', display: 'flex', flexDirection: 'column', gap: 12, minHeight: 250, animation: 'fadeUp 0.16s ease' }}>
-          <div style={{ width: 46, height: 46, borderRadius: 12, background: 'rgba(99,102,241,0.14)', border: '1px solid rgba(99,102,241,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, color: '#c7c7ff' }} aria-hidden>
-            {slide.icon}
+        {/* Slide body: screenshot with callouts, notes underneath */}
+        <div key={slide.id} style={{ overflowY: 'auto', minHeight: 0, animation: 'fadeUp 0.16s ease' }}>
+          <div style={{ padding: '14px 16px 0' }}>
+            <div style={{ position: 'relative', width: '100%', aspectRatio: shot ? `${shot.width} / ${shot.height}` : '14 / 9', borderRadius: 10, overflow: 'hidden', border: '1px solid rgba(99,102,241,0.22)', background: '#07071a' }}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={`/guide/${slide.id}.jpg`} alt={slide.title} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', display: 'block' }} />
+              {boxes.map((b, i) => (
+                <div key={i} aria-hidden style={{ position: 'absolute', left: `${b.x * 100}%`, top: `${b.y * 100}%`, width: `${b.w * 100}%`, height: `${b.h * 100}%`, boxSizing: 'border-box', border: `2px solid ${ACCENT}`, borderRadius: 6, boxShadow: '0 0 0 1px rgba(0,0,0,0.55)', pointerEvents: 'none' }}>
+                  <span style={{ position: 'absolute', left: -1, top: -1, transform: 'translate(-40%, -40%)', minWidth: 20, height: 20, padding: '0 6px', borderRadius: 10, background: ACCENT, color: '#1a1200', fontSize: 11, fontWeight: 900, lineHeight: '20px', textAlign: 'center', boxShadow: '0 1px 4px rgba(0,0,0,0.5)' }}>
+                    {i + 1}
+                  </span>
+                </div>
+              ))}
+            </div>
           </div>
-          <h2 style={{ margin: 0, fontSize: 20, fontWeight: 900, color: '#eaeaf8', letterSpacing: '-0.3px' }}>{slide.title}</h2>
-          <p style={{ margin: 0, fontSize: 13, lineHeight: 1.6, color: '#b8b8dc' }}>{slide.body}</p>
-          {slide.tip && (
-            <p style={{ margin: 0, borderRadius: 9, border: '1px solid rgba(99,102,241,0.2)', background: 'rgba(99,102,241,0.08)', padding: '8px 11px', fontSize: 11.5, lineHeight: 1.55, color: '#a5a5f0' }}>
-              {slide.tip}
-            </p>
-          )}
+          <div style={{ padding: '12px 16px 6px', display: 'grid', gridTemplateColumns: boxes.length ? 'minmax(0, 1.1fr) minmax(0, 1fr)' : '1fr', gap: 16 }}>
+            {boxes.length > 0 && (
+              <ol style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {boxes.map((b, i) => (
+                  <li key={i} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 12, lineHeight: 1.5, color: '#c8c8e8' }}>
+                    <span style={{ flexShrink: 0, minWidth: 20, height: 20, padding: '0 6px', borderRadius: 10, background: ACCENT, color: '#1a1200', fontSize: 11, fontWeight: 900, lineHeight: '20px', textAlign: 'center' }}>{i + 1}</span>
+                    <span>{b.label}</span>
+                  </li>
+                ))}
+              </ol>
+            )}
+            <p style={{ margin: 0, fontSize: 12.5, lineHeight: 1.6, color: '#a8a8cc' }}>{slide.text}</p>
+          </div>
         </div>
 
         {/* Footer */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px 16px', gap: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 16px 14px', gap: 12, flexShrink: 0, borderTop: '1px solid rgba(99,102,241,0.1)' }}>
           <div style={{ display: 'flex', gap: 5 }} aria-hidden>
-            {SLIDES.map((_, i) => (
+            {SLIDES.map((s, i) => (
               <button
-                key={i}
+                key={s.id}
                 onClick={() => setIndex(i)}
-                title={SLIDES[i].title}
+                title={s.title}
                 style={{ width: i === index ? 18 : 7, height: 7, borderRadius: 4, border: 'none', padding: 0, cursor: 'pointer', background: i === index ? '#6366f1' : 'rgba(99,102,241,0.3)', transition: 'width 0.15s' }}
               />
             ))}

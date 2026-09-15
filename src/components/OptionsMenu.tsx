@@ -78,7 +78,7 @@ export default function OptionsMenu() {
           </button>
           <button role="menuitem" style={itemStyle} onClick={() => pick(() => window.dispatchEvent(new CustomEvent(OPEN_GUIDE_EVENT)))}>
             Guide
-            <span style={hintStyle}>A quick tour of everything the app can do: library, editor, Megas, assistant, builder, calc, speed tiers, export.</span>
+            <span style={hintStyle}>Annotated screenshots of everything the app can do: library, editor, Megas, assistant, builder, calc, speed tiers, export.</span>
           </button>
           <div style={{ height: 1, background: 'rgba(99,102,241,0.15)', margin: '4px 6px' }} />
           {enabled && user ? (

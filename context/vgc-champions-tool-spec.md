@@ -190,7 +190,8 @@ to the client. Keep `isValidMon` cheap.
 Guests use a localStorage adapter with the same async `TeamStore` interface. When a visitor
 signs in or creates an account, Workspace moves every browser-saved team into the account store
 (skipping ids already there, then deleting the local copy) and shows a one-line notice; there is
-no prompt. Chat history is kept in React state for the session and is not persisted.
+no prompt. Chat history is kept per team in this browser's localStorage (see the Editor section
+below); it is not part of the team record and does not sync through Firestore.
 
 The header's ⚙ Options menu (`src/components/OptionsMenu.tsx`) holds the visitor-level
 settings: the Showdown account panel (username link, ratings, replays, public-team import,
